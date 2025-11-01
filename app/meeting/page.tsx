@@ -6,6 +6,7 @@ import Header from "../components/Header";
 import AddUserModal from "../components/AddUserModal";
 import DeviceConfigModal from "../components/DeviceConfigModal";
 import TldrawBoardEmbedded from "../components/TldrawBoardEmbedded";
+import DesmosCalculator from "../components/DesmosCalculator";
 import useMeetingAudio from "./useMeetingAudio";
 import MeetingArea from "../components/MeetingArea";
 import MeetingToolbar from "../components/MeetingToolbar";
@@ -27,6 +28,7 @@ export default function Page() {
   const [showModal, setShowModal] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [showWhiteboard, setShowWhiteboard] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState<any>(null);
 
   const SIGNALING_URL =
@@ -126,6 +128,7 @@ export default function Page() {
             onMute={handleMute}
             onDeafen={handleDeafen}
             onWhiteboard={() => setShowWhiteboard(!showWhiteboard)}
+            onCalculator={() => setShowCalculator(!showCalculator)}
             onLeave={() => {
               cleanup();
               router.push("/");
@@ -177,6 +180,12 @@ export default function Page() {
         isOpen={showConfig}
         onClose={() => setShowConfig(false)}
         onConfirm={() => setShowConfig(false)}
+      />
+
+      {/* Desmos Calculator */}
+      <DesmosCalculator
+        isOpen={showCalculator}
+        onClose={() => setShowCalculator(false)}
       />
     </div>
   );

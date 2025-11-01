@@ -520,6 +520,44 @@ function convertDrawShapeToTldrawShape(
 		fill = convertSimpleFillToTldrawFill('none')
 	}
 
+	// Validate segments from defaultShape if they exist
+	let segments = defaultDrawShape.props?.segments
+	if (segments && Array.isArray(segments) && segments.length > 0) {
+		// Ensure each segment has at least 2 points (required for Polyline2d)
+		segments = segments.filter(segment => {
+			if (segment && segment.points && Array.isArray(segment.points)) {
+				return segment.points.length >= 2
+			}
+			return false
+		})
+		
+		// If no valid segments remain, set to undefined to use default
+		if (segments.length === 0) {
+			segments = undefined
+		}
+	}
+
+	const props: any = {
+		color: asColor(simpleShape.color ?? defaultDrawShape.props?.color ?? 'black'),
+		fill,
+	}
+	
+	// Only add segments if they are valid
+	if (segments) {
+		props.segments = segments
+	} else {
+		// Provide a default valid segment with 2 points (required minimum)
+		props.segments = [
+			{
+				type: 'free',
+				points: [
+					{ x: 0, y: 0, z: 0.75 },
+					{ x: 10, y: 10, z: 0.75 }
+				]
+			}
+		]
+	}
+
 	return {
 		shape: {
 			id: shapeId,
@@ -532,10 +570,7 @@ function convertDrawShapeToTldrawShape(
 			parentId: defaultDrawShape.parentId ?? editor.getCurrentPageId(),
 			isLocked: defaultDrawShape.isLocked ?? false,
 			opacity: defaultDrawShape.opacity ?? 1,
-			props: {
-				color: asColor(simpleShape.color ?? defaultDrawShape.props?.color ?? 'black'),
-				fill,
-			},
+			props,
 			meta: {
 				note: simpleShape.note ?? defaultDrawShape.meta?.note ?? '',
 			},
