@@ -10,6 +10,8 @@ import {
 	TLUiOverrides,
 	useEditor,
 	Editor,
+	TLShapeId,
+	TLDrawShape,
 } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { TldrawAgent } from '@/client/agent/TldrawAgent'
@@ -152,6 +154,49 @@ function BoardInner({
 	const editor = useEditor()
 	const agent = useTldrawAgent(editor, 'agent')
 	const processedPromptRef = useRef<boolean>(false)
+	const hasValidatedShapes = useRef<boolean>(false)
+
+	// Validate and clean up invalid draw shapes on mount and when shapes change
+	useEffect(() => {
+		if (!editor || hasValidatedShapes.current) return
+
+		try {
+			const allShapes = editor.getCurrentPageShapes()
+			const invalidDrawShapes: TLShapeId[] = []
+
+			for (const shape of allShapes) {
+				if (shape.type === 'draw') {
+					const drawShape = shape as TLDrawShape
+					const segments = drawShape.props?.segments
+					
+					if (segments && Array.isArray(segments)) {
+						// Check each segment for valid point count
+						for (const segment of segments) {
+							if (segment && segment.points) {
+								if (!Array.isArray(segment.points) || segment.points.length < 2) {
+									invalidDrawShapes.push(shape.id)
+									break
+								}
+							}
+						}
+					} else if (!segments || (Array.isArray(segments) && segments.length === 0)) {
+						// No segments or empty segments array
+						invalidDrawShapes.push(shape.id)
+					}
+				}
+			}
+
+			// Delete invalid draw shapes
+			if (invalidDrawShapes.length > 0) {
+				console.warn(`[TldrawBoardEmbedded] Removing ${invalidDrawShapes.length} invalid draw shapes with insufficient points`)
+				editor.deleteShapes(invalidDrawShapes)
+			}
+
+			hasValidatedShapes.current = true
+		} catch (error) {
+			console.error('[TldrawBoardEmbedded] Error validating shapes:', error)
+		}
+	}, [editor])
 
 	// Register agent when it's created
 	useEffect(() => {

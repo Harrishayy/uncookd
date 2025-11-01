@@ -5,7 +5,8 @@ import {
   SpeakerWaveIcon, 
   RectangleStackIcon,
   ArrowRightOnRectangleIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  CalculatorIcon
 } from "@heroicons/react/24/solid";
 import { 
   MicrophoneIcon as MicrophoneIconOutline,
@@ -18,6 +19,7 @@ export default function MeetingToolbar({
   onMute,
   onDeafen,
   onWhiteboard,
+  onCalculator,
   onLeave,
   onSettings,
 }: {
@@ -26,6 +28,7 @@ export default function MeetingToolbar({
   onMute: () => void;
   onDeafen: () => void;
   onWhiteboard: () => void;
+  onCalculator: () => void;
   onLeave: () => void;
   onSettings: () => void;
 }) {
@@ -73,6 +76,15 @@ export default function MeetingToolbar({
         >
           <RectangleStackIcon className="h-5 w-5" />
           <span className="hidden sm:inline">Whiteboard</span>
+        </button>
+
+        {/* Calculator Button */}
+        <button
+          onClick={onCalculator}
+          className="group flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all duration-200"
+        >
+          <CalculatorIcon className="h-5 w-5" />
+          <span className="hidden sm:inline">Calculator</span>
         </button>
 
         {/* Settings Button */}
