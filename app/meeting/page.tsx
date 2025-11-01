@@ -11,6 +11,7 @@ import MeetingArea from "../components/MeetingArea";
 import MeetingToolbar from "../components/MeetingToolbar";
 import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/solid";
 import { Transition } from "@headlessui/react";
+import Footer from "../components/Footer"
 
 const allUsers = [
   { name: "John Doe", avatar_url: "https://via.placeholder.com/150" },
