@@ -9,7 +9,6 @@ export default function Header() {
                 <Link href="/" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">Home</Link>
                 <Link href="/about" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">About</Link>
                 <Link href="/meeting" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">Meeting</Link>
-                <Link href="/meeting-config" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">Meeting Config</Link>
             </nav>
         </header>
     );

@@ -1,64 +1,37 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { FaUserCircle } from "react-icons/fa";
+import React from "react";
+import Image from "next/image";
 
 interface MeetingUserProps {
   name: string;
   avatar_url: string;
   isMuted?: boolean;
+  isSpeaking?: boolean;
 }
 
-function MeetingUser({ name, avatar_url, isMuted = false }: MeetingUserProps) {
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [imageError, setImageError] = useState(false);
-
-  const toggleSpeaking = () => {
-    setIsSpeaking(!isSpeaking);
-  };
-
-  // Generate initials for fallback
-  const initials = name
-    .split(' ')
-    .map(word => word[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-
-  const getRandomColor = () => {
-    const colors = ['bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500'];
-    return colors[name.length % colors.length];
-  };
-
+export default function MeetingUser({ name, avatar_url, isMuted, isSpeaking }: MeetingUserProps) {
   return (
-    <div className="flex flex-col items-center justify-center p-2">
-      <div className={`w-56 h-40 bg-blue-500 rounded-xl shadow-lg flex flex-col items-center justify-center hover:bg-blue-600 transition-all duration-300 m-2 ${isSpeaking ? 'ring-4 ring-green-500 ring-opacity-75' : ''}`}>
-        <div className="flex flex-col items-center justify-center w-full h-full">
-          <div onClick={toggleSpeaking} className="flex items-center justify-center mb-2 cursor-pointer">
-            {!imageError && avatar_url ? (
-              <img
-                src={avatar_url}
-                alt={name}
-                className={`w-16 h-16 rounded-full object-cover border-2 border-white shadow transition-transform duration-300 ${isSpeaking ? '-translate-y-2' : ''}`}
-                onError={() => setImageError(true)}
-              />
-            ) : (
-              <FaUserCircle className={`w-16 h-16 text-white transition-transform duration-300 ${isSpeaking ? '-translate-y-2' : ''}`} />
-            )}
-          </div>
-          <p className="font-semibold text-white text-lg mt-1 truncate text-center">
-            {name}
-          </p>
-          {isSpeaking && (
-            <div className="dot-wave" aria-hidden>
-              <span className="dot" />
-              <span className="dot" />
-              <span className="dot" />
-            </div>
-          )}
+    <div className="relative w-56 h-40 bg-gray-800 rounded-xl shadow-lg flex flex-col items-center justify-center p-4">
+      {avatar_url ? (
+        <Image
+          src={avatar_url}
+          alt={name}
+          width={64}
+          height={64}
+          className="rounded-full mb-2"
+        />
+      ) : (
+        <div className="w-16 h-16 rounded-full bg-gray-600 mb-2" />
+      )}
+      <span className="text-white font-medium truncate">{name}</span>
+
+      {isSpeaking && (
+        <div className="absolute bottom-3 flex gap-1">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce [animation-delay:-0.2s]" />
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce [animation-delay:-0.1s]" />
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-bounce" />
         </div>
-      </div>
+      )}
     </div>
   );
 }
-
-export default MeetingUser;
