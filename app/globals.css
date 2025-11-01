@@ -24,3 +24,28 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Dot wave animation used for speaking indicator */
+.dot-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.dot-wave .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background-color: #34d399; /* green-400 */
+  display: inline-block;
+  transform: translateY(0);
+  animation: dotWave 1s infinite ease-in-out;
+}
+.dot-wave .dot:nth-child(2) { animation-delay: 0.12s; }
+.dot-wave .dot:nth-child(3) { animation-delay: 0.24s; }
+
+@keyframes dotWave {
+  0% { transform: translateY(0); opacity: 0.9; }
+  50% { transform: translateY(-8px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0.9; }
+}

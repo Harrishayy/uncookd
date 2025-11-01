@@ -1,9 +1,11 @@
 import TldrawBoard from "./components/TldrawBoard";
+import Header from "./components/Header";
 
-export default function Home() {
+export default function Page() {
   return (
-    <div className="h-screen w-screen">
-      <TldrawBoard boardId="main-board" />
-    </div>
-  );
+        <div>
+            <Header />
+            <h1>Home</h1>
+        </div>
+    );
 }
