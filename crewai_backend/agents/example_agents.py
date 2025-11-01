@@ -6,38 +6,175 @@ in a virtual classroom environment with whiteboard support.
 
 from crewai import Agent, Task, Crew
 from typing import List, Optional, Dict, Any
+from agents.tools.whiteboard_tool import WhiteboardVisualTool, WhiteboardVisualToolFlexible
+import re
 
 
 # ============================================================================
-# AGENT CREATION FUNCTIONS
+# WHITEBOARD AWARENESS UTILITY
 # ============================================================================
+
+def should_use_whiteboard(
+    topic: str,
+    context: Optional[Dict[str, Any]] = None,
+    subject: str = "general"
+) -> bool:
+    """
+    Determine if a question/topic would benefit from visual representation.
+    
+    This function analyzes the topic and context to determine if visual aids
+    (graphs, diagrams, charts) would be helpful for understanding.
+    
+    Args:
+        topic: The question or topic being discussed
+        context: Additional context (conversation history, user message, etc.)
+        subject: The subject area (mathematics, physics, etc.)
+    
+    Returns:
+        True if visual representation would benefit understanding, False otherwise
+    """
+    topic_lower = topic.lower()
+    context_str = ""
+    
+    # Extract text from context if available
+    if context:
+        if isinstance(context, dict):
+            # Get user message and conversation history
+            user_msg = context.get("user_message", "")
+            conv_history = context.get("conversation_history", [])
+            
+            # Build context string from history
+            if conv_history:
+                history_text = " ".join([
+                    msg.get("message", "") if isinstance(msg, dict) else str(msg)
+                    for msg in conv_history[-3:]  # Last 3 messages
+                ])
+                context_str = f"{user_msg} {history_text}".lower()
+            else:
+                context_str = user_msg.lower()
+    
+    # Combine topic and context for analysis
+    full_text = f"{topic_lower} {context_str}".lower()
+    
+    # Subject-specific visual indicators
+    visual_subjects = {
+        "mathematics": ["graph", "plot", "function", "equation", "derivative", 
+                       "integral", "curve", "slope", "intercept", "parabola",
+                       "solve", "calculate", "quadratic", "linear", "exponential",
+                       "geometric", "shape", "angle", "triangle", "circle"],
+        "physics": ["force", "wave", "motion", "diagram", "circuit", "electric",
+                   "magnetic", "field", "particle", "atom", "molecule", "energy",
+                   "acceleration", "velocity", "trajectory", "interference"],
+        "biology": ["cell", "molecule", "process", "cycle", "structure", "diagram",
+                   "organism", "system", "pathway", "anatomy", "physiology"],
+        "chemistry": ["molecule", "reaction", "compound", "structure", "bond",
+                     "periodic", "table", "equation", "formula"],
+        "geometry": ["shape", "angle", "triangle", "circle", "square", "polygon",
+                    "area", "perimeter", "volume", "surface", "diagram"],
+        "general": ["visual", "diagram", "graph", "chart", "plot", "illustrate",
+                   "show", "draw", "sketch", "represent", "model"]
+    }
+    
+    # Get relevant keywords for the subject
+    keywords = visual_subjects.get(subject.lower(), visual_subjects["general"])
+    keywords.extend(visual_subjects["general"])  # Always include general keywords
+    
+    # Check for visual-related keywords
+    visual_keywords = [
+        "graph", "plot", "chart", "diagram", "visual", "illustration",
+        "show", "draw", "sketch", "picture", "image", "figure",
+        "equation", "formula", "function", "solve", "calculate",
+        "shape", "geometry", "geometric", "visualize", "represent",
+        "model", "structure", "process", "flow", "relationship"
+    ]
+    
+    # Check for mathematical/scientific patterns
+    has_equation = bool(re.search(r'[x-y]=|f\(x\)|=|\+|−|×|÷|√|∫|∑|π', full_text))
+    has_numbers = bool(re.search(r'\d+', full_text))
+    has_visual_request = any(keyword in full_text for keyword in visual_keywords)
+    has_subject_keywords = any(keyword in full_text for keyword in keywords)
+    
+    # Special patterns that suggest visual needs
+    visual_patterns = [
+        r'how\s+(to|do|does|can)',
+        r'what\s+(is|are|does|do)',
+        r'explain\s+(the|how|what)',
+        r'show\s+(me|how)',
+        r'visualize',
+        r'illustrate',
+        r'demonstrate',
+        r'compare',
+        r'difference\s+between',
+        r'relationship',
+        r'pattern',
+    ]
+    
+    has_visual_pattern = any(re.search(pattern, full_text, re.IGNORECASE) 
+                            for pattern in visual_patterns)
+    
+    # Check if context explicitly requests visual
+    explicit_visual_request = any(word in full_text for word in [
+        "visual", "diagram", "graph", "chart", "picture", "draw", "show visually"
+    ])
+    
+    # Decision logic: True if any strong indicators
+    should_use = (
+        explicit_visual_request or
+        (has_equation and has_numbers) or  # Mathematical expressions
+        (has_visual_request and has_subject_keywords) or  # Subject-specific visuals
+        has_visual_pattern or  # Patterns suggesting need for visuals
+        (has_subject_keywords and subject.lower() in ["mathematics", "physics", 
+                                                       "geometry", "chemistry"])  # Strong visual subjects
+    )
+    
+    # Exclude cases that definitely don't need visuals
+    text_only_indicators = [
+        "define", "meaning", "word", "phrase", "concept (without visual)",
+        "history", "story", "narrative", "explain in words"
+    ]
+    
+    if any(indicator in full_text for indicator in text_only_indicators):
+        # But still allow if explicitly requested
+        if not explicit_visual_request:
+            should_use = False
+    
+    return should_use
 
 
 def create_professor_agent(
     subject: str = "general studies", personality: str = "encouraging"
 ):
     """
-    Create a Professor/Moderator agent to guide classroom discussions
+    Create a Socratic Mentor agent to guide the user's learning process.
 
     Args:
         subject: The subject area (e.g., "mathematics", "physics", "history")
-        personality: Agent personality ("encouraging", "rigorous", "playful")
+        personality: Agent personality ("encouraging", "inquisitive", "patient")
     """
     personality_traits = {
-        "encouraging": "You are warm, supportive, and encourage participation from all students.",
-        "rigorous": "You maintain high academic standards and push for deep understanding.",
-        "playful": "You use humor and creative examples to make learning engaging.",
+        "encouraging": "You are warm and supportive, celebrating small breakthroughs and encouraging curiosity.",
+        "inquisitive": "You are deeply curious, asking probing questions that guide students to new insights.",
+        "patient": "You are calm and unhurried, giving students the time and space they need to think.",
     }
 
     return Agent(
-        role=f"Professor of {subject.title()}",
-        goal=f"Facilitate engaging discussions and debates about {subject}, ensuring all participants learn and contribute meaningfully",
-        backstory=f"""You are an experienced educator with a passion for {subject}. 
-        {personality_traits.get(personality, personality_traits["encouraging"])}
-        You guide classroom discussions, moderate debates, and help synthesize different viewpoints.
-        You can recognize when visual aids (graphs, diagrams) would help understanding and suggest them for the whiteboard.""",
+        role=f"Socratic Mentor for {subject.title()}",
+        goal=f"""Guide the user (the student) to discover answers for themselves through 
+        Socratic questioning and critical thinking. Do not give direct answers, but 
+        instead, help the user build their own understanding. Facilitate debates 
+        between other agents to expose the user to multiple viewpoints.""",
+        backstory=f"""You are an educator who believes the best learning comes from 
+        discovery, not dictation. {personality_traits.get(personality, personality_traits["encouraging"])}
+        You specialize in the Socratic method. Your main tools are questions.
+        When a student asks a question, you respond with a question that helps them 
+        think more deeply. You moderate the classroom, calling on other agents 
+        (like the Analyst or Thinker) to provide different perspectives, and then 
+        you turn back to the user and ask, 'What do you think about that?'
+        
+        When a visual aid is needed, you will ask the Domain Analyst to 
+        'show us' by calling the `Whiteboard_Visual_Tool`.""",
         verbose=True,
-        allow_delegation=True,
+        allow_delegation=True, # Can delegate tasks to the Analyst or Thinker
     )
 
 
@@ -45,44 +182,54 @@ def create_subject_expert_agent(
     subject: str = "mathematics", expertise_level: str = "advanced"
 ):
     """
-    Create a Subject Expert agent that can explain concepts and provide insights
+    Create a Domain Analyst agent that reasons *with* the student.
 
     Args:
         subject: The subject of expertise (e.g., "mathematics", "physics", "literature")
         expertise_level: "beginner", "intermediate", or "advanced"
     """
     return Agent(
-        role=f"{subject.title()} Expert",
-        goal=f"Provide clear explanations, generate examples, and suggest visual representations for {subject} concepts",
+        role=f"{subject.title()} Problem Analyst",
+        goal=f"""To co-reason with the user to break down complex {subject} problems. 
+        Collaborate on finding solutions step-by-step, but do not provide the 
+        final answer outright. Suggest and create visual representations to aid intuition.""",
         backstory=f"""You are a specialist in {subject} with {expertise_level}-level expertise.
-        You excel at breaking down complex ideas into understandable parts and creating intuitive explanations.
-        You often think in terms of visual representations and can describe graphs, equations, and diagrams
-        that would help students understand the material better.""",
+        You function like a brilliant lab partner or study companion. When the user 
+        presents a problem, your first step is to say, 'Okay, let's tackle this. 
+        What do we know first?' or 'What's our first step?'
+        
+        You excel at breaking down problems, organizing information, and thinking aloud.
+        You are the primary agent responsible for creating visual aids. When the 
+        discussion involves a plottable equation or a diagrammable concept 
+        (e.g., 'solving y=x^2-4'), you MUST use the `Whiteboard_Visual_Tool` 
+        to plot the graph and mark the roots on the communal whiteboard.""",
         verbose=True,
-        allow_delegation=False,
+        allow_delegation=False, # Focuses on its task
     )
-
 
 def create_devils_advocate_agent(challenge_level: str = "moderate"):
     """
-    Create a Devil's Advocate agent to challenge ideas and promote critical thinking
+    Create a Critical Thinker agent to challenge ideas and promote rigor.
 
     Args:
-        challenge_level: "mild", "moderate", or "aggressive"
+        challenge_level: "mild", "moderate", or "thorough"
     """
     challenge_styles = {
-        "mild": "You gently question assumptions and suggest alternative perspectives.",
-        "moderate": "You actively challenge ideas with counterarguments and ask probing questions.",
-        "aggressive": "You strongly debate points and push hard for evidence and logical consistency.",
+        "mild": "You gently question assumptions and ask for clarification.",
+        "moderate": "You actively look for flaws in logic and ask for evidence.",
+        "thorough": "You rigorously test every statement against known facts and logical fallacies.",
     }
 
     return Agent(
-        role="Critical Thinker & Devil's Advocate",
-        goal="Challenge ideas, ask probing questions, and ensure rigorous thinking in discussions",
-        backstory=f"""You are a sharp intellectual who loves to test ideas through debate.
+        role="Critical Thinker",
+        goal="Ensure all arguments are logical, well-supported, and have been examined from all sides.",
+        backstory=f"""You are a "why" person. You believe that ideas only become 
+        strong after they have been thoroughly tested.
         {challenge_styles.get(challenge_level, challenge_styles["moderate"])}
-        You help ensure that conclusions are well-reasoned and that students consider multiple perspectives.
-        You're not mean-spirited—you want to strengthen understanding through rigorous discussion.""",
+        You are not adversarial for the sake of it; your purpose is to strengthen 
+        everyone's understanding by ensuring no one takes shortcuts in their reasoning.
+        You will often say, 'Are we sure about that?' or 'What evidence supports that claim?' 
+        or 'What if we look at it from this angle...?'""",
         verbose=True,
         allow_delegation=False,
     )
@@ -90,40 +237,49 @@ def create_devils_advocate_agent(challenge_level: str = "moderate"):
 
 def create_peer_student_agent(background: str = "curious learner"):
     """
-    Create a Peer Student agent that participates as another student
+    Create a Peer Student agent that participates as another student.
 
     Args:
         background: Student background (e.g., "curious learner", "struggling student", "overachiever")
     """
     return Agent(
         role="Peer Student",
-        goal="Participate in discussions, ask questions, share insights, and learn alongside other students",
-        backstory=f"""You are a fellow student in this virtual classroom. You come from the perspective of a {background}.
-        You ask questions when concepts are unclear, share your thoughts, and engage genuinely with the material.
-        You sometimes need clarification or offer unique perspectives that others might not consider.""",
+        goal="Participate in discussions, ask clarifying questions, and share insights to learn alongside the user.",
+        backstory=f"""You are a fellow student in this virtual classroom from a {background} background.
+        You're here to learn, just like the user. You will 'think aloud', 
+        sometimes proposing hypotheses that might be incomplete or even wrong.
+        You are not afraid to ask 'dumb questions' (e.g., 'Sorry, can we go back? 
+        I'm lost.') which helps make the classroom a safe space for the user.
+        You can also offer peer feedback, saying 'That's a great way to put it!' 
+        or 'I'm not sure I follow your logic there.'""",
         verbose=True,
         allow_delegation=False,
     )
-
-
-def create_visual_learning_assistant_agent():
+    
+def create_interdisciplinary_connector_agent():
     """
-    Create an agent that specializes in generating visual/whiteboard content
+    Create a "Discovery Engine" agent that connects ideas across fields.
     """
     return Agent(
-        role="Visual Learning Assistant",
-        goal="Generate descriptions and specifications for graphs, diagrams, and visual aids to be displayed on the whiteboard",
-        backstory="""You are an expert at creating visual representations of concepts.
-        When discussions involve mathematical equations, scientific phenomena, or abstract concepts,
-        you can describe what should be drawn on the whiteboard—including:
-        - Mathematical plots (e.g., quadratic functions with roots marked)
-        - Scientific diagrams (e.g., wave interference patterns)
-        - Conceptual maps (e.g., cause-and-effect relationships)
-        - Step-by-step visual solutions
-        You provide detailed descriptions that can be interpreted by visualization tools.""",
+        role="Interdisciplinary Connector",
+        goal="Find surprising and insightful connections between the current topic and other fields (e.g., art, history, philosophy, science).",
+        backstory=f"""You are a 'big picture' thinker, a polymath. You have a knack 
+        for lateral thinking. While other agents are focused on the details 
+        of a problem, your job is to add context and spark discovery.
+        
+        If the class is discussing quadratic equations (math), you might bring up 
+        how Galileo used them to describe projectile motion (physics) or how the 
+        parabolic shape appears in architecture (art). If the topic is the 
+        French Revolution (history), you might connect it to the rise of 
+        Enlightenment philosophy (ideas). Your goal is to widen the user's 
+        perspective.""",
         verbose=True,
         allow_delegation=False,
     )
+
+
+# Visual Learning Assistant removed - converted to a tool
+# Agents can now use WhiteboardVisualTool when they need visual explanations
 
 
 # ============================================================================
@@ -135,26 +291,30 @@ def create_discussion_task(
     topic: str,
     agent: Agent,
     context: Optional[Dict[str, Any]] = None,
-    whiteboard_aware: bool = True,
+    whiteboard_aware: Optional[bool] = None,
+    subject: str = "general",
 ) -> Task:
     """
-    Create a discussion task for an agent to participate in
-
-    Args:
-        topic: The discussion topic
-        agent: The agent assigned to this task
-        context: Additional context (e.g., previous messages, whiteboard state)
-        whiteboard_aware: Whether the agent should consider whiteboard content
+    Create a discussion task for an agent to participate in.
+    Whiteboard tool is included only if relevant.
     """
+    # Auto-determine if whiteboard would be helpful
+    if whiteboard_aware is None:
+        whiteboard_aware = should_use_whiteboard(topic, context, subject)
+    
+    # Conditionally attach whiteboard tools (standard and flexible wrapper)
+    task_tools = [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()] if whiteboard_aware else []
+
     whiteboard_instruction = ""
     if whiteboard_aware:
         whiteboard_instruction = """
         If relevant, suggest what could be visualized on the whiteboard to aid understanding.
-        Reference any existing whiteboard content when making your points."""
+        Reference any existing whiteboard content when making your points.
+        Use the generate_whiteboard_visual tool if a visual representation would help.
+        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
+        If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
 
-    context_str = ""
-    if context:
-        context_str = f"\nContext: {context}"
+    context_str = f"\nContext: {context}" if context else ""
 
     return Task(
         description=f"""Participate in a discussion about: {topic}
@@ -167,6 +327,7 @@ def create_discussion_task(
         If you're a challenger, ask critical questions. If you're a student, ask questions and share thoughts.""",
         agent=agent,
         expected_output="A conversational response that contributes to the discussion, potentially including whiteboard suggestions",
+        tools=task_tools if task_tools else []  # Only include tools if relevant
     )
 
 
@@ -176,25 +337,15 @@ def create_debate_task(
     position: str = "argue",
     context: Optional[Dict[str, Any]] = None,
 ) -> Task:
-    """
-    Create a debate task where an agent argues for or against a proposition
-
-    Args:
-        proposition: The statement being debated
-        agent: The agent assigned to this task
-        position: "argue" (for) or "counter" (against) or "moderate" (neutral)
-        context: Additional context
-    """
     position_instructions = {
         "argue": "Present arguments in favor of the proposition.",
         "counter": "Present arguments against the proposition and challenge the opposing side.",
         "moderate": "Help structure the debate, summarize points, and ensure both sides are heard.",
     }
 
-    context_str = ""
-    if context:
-        context_str = f"\nContext: {context}"
+    context_str = f"\nContext: {context}" if context else ""
 
+    # Debate tasks rarely need whiteboard, but keep tools empty list for consistency
     return Task(
         description=f"""Participate in a debate about: {proposition}
         
@@ -205,6 +356,7 @@ def create_debate_task(
         Reference the whiteboard if visual aids would strengthen your position.""",
         agent=agent,
         expected_output="A persuasive argument or counterargument presented in a conversational debate format",
+        tools=[],  # always a list
     )
 
 
@@ -212,22 +364,29 @@ def create_explanation_task(
     concept: str,
     agent: Agent,
     audience_level: str = "intermediate",
-    include_visuals: bool = True,
+    include_visuals: Optional[bool] = None,
+    context: Optional[Dict[str, Any]] = None,
+    subject: str = "general",
 ) -> Task:
     """
-    Create a task for an agent to explain a concept
-
-    Args:
-        concept: The concept to explain
-        agent: The agent assigned to this task
-        audience_level: "beginner", "intermediate", or "advanced"
-        include_visuals: Whether to suggest visual representations
+    Create a task for an agent to explain a concept.
+    Whiteboard tool is included only if relevant.
     """
+    # Auto-determine if visuals would be helpful
+    if include_visuals is None:
+        include_visuals = should_use_whiteboard(concept, context, subject)
+    
+    # Conditionally attach whiteboard tools (standard and flexible wrapper)
+    task_tools = [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()] if include_visuals else []
+
     visual_instruction = ""
     if include_visuals:
         visual_instruction = """
         Describe what should be displayed on the whiteboard to help visualize this concept
-        (e.g., graphs, diagrams, step-by-step solutions)."""
+        (e.g., graphs, diagrams, step-by-step solutions).
+        Use the generate_whiteboard_visual tool if a visual representation would help.
+        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
+        If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
 
     return Task(
         description=f"""Explain the concept: {concept}
@@ -238,6 +397,7 @@ def create_explanation_task(
         Make your explanation clear, intuitive, and engaging.""",
         agent=agent,
         expected_output=f"A clear explanation of {concept} appropriate for {audience_level} students, with visual suggestions if relevant",
+        tools=task_tools if task_tools else []  # Only include tools if relevant
     )
 
 
@@ -246,10 +406,13 @@ def create_whiteboard_content_task(
 ) -> Task:
     """
     Create a task for generating whiteboard content descriptions
+    
+    Note: This is kept for backward compatibility. In most cases, agents should
+    use the WhiteboardVisualTool directly instead of requiring a separate task.
 
     Args:
         topic: The topic/concept to visualize
-        agent: The agent (typically Visual Learning Assistant)
+        agent: The agent to assign this task to (should have WhiteboardVisualTool available)
         content_type: "graph", "diagram", "equation", "concept_map", etc.
     """
     return Task(
@@ -276,7 +439,6 @@ def create_whiteboard_content_task(
 def create_classroom_crew(
     subject: str = "mathematics",
     agents_config: Optional[Dict[str, Any]] = None,
-    include_visual_assistant: bool = True,
 ) -> Crew:
     """
     Create a virtual classroom crew with multiple educational agents
@@ -288,11 +450,13 @@ def create_classroom_crew(
             - expert_level: "beginner" | "intermediate" | "advanced"
             - challenge_level: "mild" | "moderate" | "aggressive"
             - student_background: e.g., "curious learner"
-        include_visual_assistant: Whether to include the visual learning assistant
+    
+    Note: Visual learning is handled via tools - agents automatically use 
+    generate_whiteboard_visual tool when they need visual explanations.
     """
     config = agents_config or {}
 
-    # Create agents
+    # Create agents (they have access to whiteboard tool when needed)
     professor = create_professor_agent(
         subject=subject, personality=config.get("professor_personality", "encouraging")
     )
@@ -309,23 +473,24 @@ def create_classroom_crew(
         background=config.get("student_background", "curious learner")
     )
 
-    agents = [professor, expert, devils_advocate, peer_student]
+    connector = create_interdisciplinary_connector_agent()
 
-    if include_visual_assistant:
-        visual_assistant = create_visual_learning_assistant_agent()
-        agents.append(visual_assistant)
+    agents = [professor, expert, devils_advocate, peer_student, connector]
 
     # Create initial discussion tasks (these can be customized per session)
+    # whiteboard_aware and include_visuals are auto-determined
     tasks = [
         create_discussion_task(
             topic=f"Introduction to key concepts in {subject}",
             agent=professor,
-            whiteboard_aware=True,
+            whiteboard_aware=None,  # Auto-detect
+            subject=subject,
         ),
         create_explanation_task(
             concept=f"Fundamental principles of {subject}",
             agent=expert,
-            include_visuals=True,
+            include_visuals=None,  # Auto-detect
+            subject=subject,
         ),
     ]
 
@@ -337,6 +502,110 @@ def create_classroom_crew(
     )
 
     return crew
+
+
+def find_agent_by_role(crew: Crew, role_contains: str) -> Optional[Agent]:
+    """
+    Find an agent in the crew whose role contains the given substring (case-insensitive).
+    """
+    if not crew or not getattr(crew, "agents", None):
+        return None
+    role_lc = (role_contains or "").lower()
+    for a in crew.agents:
+        try:
+            if role_lc in (a.role or "").lower():
+                return a
+        except Exception:
+            continue
+    return None
+
+
+def add_user_question_flow(
+    crew: Crew,
+    question: str,
+    preferred_agent_role: Optional[str] = None,
+    subject: str = "general",
+    context: Optional[Dict[str, Any]] = None,
+    followups: int = 3,
+    include_summary: bool = False,
+) -> List[Task]:
+    """
+    Add a short multi-agent flow for a user's question:
+    - Primary: selected (or default) agent responds first
+    - Follow-ups: Limited number (by followups) from Expert and/or Critical Thinker
+    - Moderator: Optional Professor summary if include_summary=True
+
+    Returns the list of created tasks (also appended to crew.tasks).
+    """
+    if not crew:
+        return []
+
+    primary = (
+        find_agent_by_role(crew, preferred_agent_role or "")
+        or find_agent_by_role(crew, "Interdisciplinary Connector")
+        or find_agent_by_role(crew, "Problem Analyst")
+        or find_agent_by_role(crew, "Socratic Mentor")
+    )
+
+    expert = find_agent_by_role(crew, "Problem Analyst")
+    challenger = find_agent_by_role(crew, "Critical Thinker")
+    professor = find_agent_by_role(crew, "Socratic Mentor")
+
+    created: List[Task] = []
+
+    if primary:
+        created.append(
+            create_discussion_task(
+                topic=question,
+                agent=primary,
+                context=context,
+                whiteboard_aware=None,
+                subject=subject,
+            )
+        )
+
+    # Collect potential follow-ups in priority order: challenger then expert
+    followup_tasks: List[Task] = []
+    if challenger and challenger is not primary:
+        followup_tasks.append(
+            create_debate_task(
+                proposition=question,
+                agent=challenger,
+                position="counter",
+                context=context,
+            )
+        )
+    if expert and expert not in [primary, getattr(challenger, "", None)]:
+        followup_tasks.append(
+            create_explanation_task(
+                concept=question,
+                agent=expert,
+                include_visuals=None,
+                context=context,
+                subject=subject,
+            )
+        )
+
+    # Limit number of follow-ups
+    if followups > 0 and followup_tasks:
+        created.extend(followup_tasks[: max(0, int(followups))])
+
+    # Optional summary step by professor
+    if include_summary and professor and professor not in [primary, expert, challenger]:
+        created.append(
+            create_discussion_task(
+                topic=f"Summarize and guide next steps for: {question}",
+                agent=professor,
+                context=context,
+                whiteboard_aware=None,
+                subject=subject,
+            )
+        )
+
+    if created:
+        crew.tasks.extend(created)
+
+    return created
 
 
 def create_debate_crew(
@@ -603,7 +872,8 @@ async def start_discussion(request: DiscussionRequest):
         topic=request.topic,
         agent=crew.agents[0],  # Professor
         context={"whiteboard_state": request.whiteboard_state},
-        whiteboard_aware=True
+        whiteboard_aware=None,  # Auto-detect based on topic/context
+        subject=request.subject
     )
     
     # Execute and stream results

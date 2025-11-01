@@ -14,6 +14,7 @@ from agents.example_agents import (
     create_discussion_task,
     create_debate_task,
     create_explanation_task,
+    add_user_question_flow,
 )
 
 app = FastAPI(title="CrewAI Backend API", version="1.0.0")
@@ -100,6 +101,7 @@ class StudyHelpRequest(BaseModel):
     subject: str = "general"  # Subject area (e.g., "mathematics", "physics")
     conversation_history: Optional[List[Dict[str, str]]] = None  # Previous messages for context
     help_type: str = "explanation"  # "explanation", "discussion", or "debate"
+    preferred_agent_role: Optional[str] = None  # Optional: route question to a specific agent role
 
 
 class StudyHelpResponse(BaseModel):
@@ -267,7 +269,6 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
         crew = create_classroom_crew(
             subject=request.subject,
             agents_config=request.agents_config,
-            include_visual_assistant=True,
         )
 
         # Build context from conversation history and user message
@@ -294,6 +295,7 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
 
         # Create tasks for different agents to participate in the discussion
         # Agents will see each other's outputs and can respond to them
+        # whiteboard_aware is auto-determined based on topic/context
         tasks = [
             create_discussion_task(
                 topic=f"{request.topic}"
@@ -304,19 +306,22 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
                 ),
                 agent=professor_agent,
                 context=context,
-                whiteboard_aware=True,
+                whiteboard_aware=None,  # Auto-detect
+                subject=request.subject,
             ),
             create_discussion_task(
                 topic=request.topic,
                 agent=expert_agent,
                 context=context,
-                whiteboard_aware=True,
+                whiteboard_aware=None,  # Auto-detect
+                subject=request.subject,
             ),
             create_discussion_task(
                 topic=request.topic,
                 agent=devil_advocate_agent,
                 context=context,
-                whiteboard_aware=True,
+                whiteboard_aware=None,  # Auto-detect
+                subject=request.subject,
             ),
         ]
 
@@ -328,7 +333,8 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
                     topic=request.topic,
                     agent=peer_agent,
                     context=context,
-                    whiteboard_aware=True,
+                    whiteboard_aware=None,  # Auto-detect
+                    subject=request.subject,
                 )
             )
 
@@ -455,37 +461,28 @@ async def explain_concept(request: ClassroomDiscussionRequest):
 
         start_time = time.time()
 
-        # Create crew with expert
+        # Create crew with expert (agents have whiteboard tool available)
         crew = create_classroom_crew(
             subject=request.subject,
             agents_config=request.agents_config,
-            include_visual_assistant=True,
         )
 
         expert_agent = next(
             (a for a in crew.agents if "Expert" in a.role), crew.agents[1]
         )
-        visual_agent = next((a for a in crew.agents if "Visual" in a.role), None)
 
-        # Create explanation task
+        # Create explanation task (expert will use whiteboard tool if needed)
+        # include_visuals is auto-determined based on topic/context/subject
         tasks = [
             create_explanation_task(
                 concept=request.topic,
                 agent=expert_agent,
                 audience_level="intermediate",
-                include_visuals=True,
+                include_visuals=None,  # Auto-detect
+                context=None,
+                subject=request.subject,
             )
         ]
-
-        # Add visual task if visual agent exists
-        if visual_agent:
-            from agents.example_agents import create_whiteboard_content_task
-
-            tasks.append(
-                create_whiteboard_content_task(
-                    topic=request.topic, agent=visual_agent, content_type="graph"
-                )
-            )
 
         # Execute
         crew.tasks = tasks
@@ -497,9 +494,12 @@ async def explain_concept(request: ClassroomDiscussionRequest):
         responses = []
         if isinstance(result, dict):
             for task_desc, output in result.items():
+                # Determine agent name from task
                 agent_name = "Expert"
-                if "visual" in task_desc.lower() or "whiteboard" in task_desc.lower():
-                    agent_name = "Visual Assistant"
+                for task in tasks:
+                    if task.description == task_desc or task_desc in task.description:
+                        agent_name = task.agent.role
+                        break
                 responses.append({"agent": agent_name, "message": str(output)})
 
         return ClassroomDiscussionResponse(
@@ -558,6 +558,7 @@ async def study_help(request: StudyHelpRequest):
         subject = request.subject
         help_type = request.help_type
         conversation_history = request.conversation_history or []
+        preferred_agent_role = request.preferred_agent_role
         
         print(f"[STUDY HELP] User asked: {user_question}")
         print(f"[STUDY HELP] Subject: {subject}, Help type: {help_type}")
@@ -577,88 +578,52 @@ async def study_help(request: StudyHelpRequest):
         # ========================================================================
         # Handle different types of help requests
         if help_type == "explanation":
-            # For explanations, use expert + visual assistant
-            crew = create_classroom_crew(
-                subject=subject,
-                include_visual_assistant=True,
-            )
-            
-            # Find expert and visual agents
-            expert_agent = next(
-                (a for a in crew.agents if "Expert" in a.role),
-                crew.agents[0],
-            )
-            visual_agent = next(
-                (a for a in crew.agents if "Visual" in a.role), None
-            )
-            
-            # Create tasks that address the user's question
-            tasks = [
-                create_explanation_task(
-                    concept=user_question,  # User's question becomes the concept to explain
-                    agent=expert_agent,
-                    audience_level="intermediate",
-                    include_visuals=True,
+            # For explanations, prefer routing to a selected agent if provided,
+            # otherwise default to expert.
+            crew = create_classroom_crew(subject=subject)
+
+            if preferred_agent_role:
+                tasks = add_user_question_flow(
+                    crew=crew,
+                    question=user_question,
+                    preferred_agent_role=preferred_agent_role,
+                    subject=subject,
+                    context=context,
+                    followups=0,
+                    include_summary=False,
                 )
-            ]
-            
-            if visual_agent:
-                from agents.example_agents import create_whiteboard_content_task
-                tasks.append(
-                    create_whiteboard_content_task(
-                        topic=user_question,
-                        agent=visual_agent,
-                        content_type="graph",
+            else:
+                expert_agent = next(
+                    (a for a in crew.agents if "Expert" in a.role),
+                    crew.agents[0],
+                )
+                tasks = [
+                    create_explanation_task(
+                        concept=user_question,
+                        agent=expert_agent,
+                        audience_level="intermediate",
+                        include_visuals=None,
+                        context=context,
+                        subject=subject,
                     )
-                )
+                ]
                 
         elif help_type == "discussion":
-            # For discussions, multiple agents participate
-            crew = create_classroom_crew(
+            # Use limited flow: primary + at most one follow-up, no summary.
+            crew = create_classroom_crew(subject=subject)
+            tasks = add_user_question_flow(
+                crew=crew,
+                question=user_question,
+                preferred_agent_role=preferred_agent_role,
                 subject=subject,
-                include_visual_assistant=True,
+                context=context,
+                followups=3,
+                include_summary=False,
             )
-            
-            # Get different agents
-            professor_agent = next(
-                (a for a in crew.agents if "Professor" in a.role),
-                crew.agents[0],
-            )
-            expert_agent = next(
-                (a for a in crew.agents if "Expert" in a.role),
-                crew.agents[1] if len(crew.agents) > 1 else crew.agents[0],
-            )
-            devil_advocate_agent = next(
-                (a for a in crew.agents if "Devil" in a.role or "Critical" in a.role),
-                crew.agents[2] if len(crew.agents) > 2 else crew.agents[0],
-            )
-            
-            # Create discussion tasks based on user's question
-            tasks = [
-                create_discussion_task(
-                    topic=user_question,  # User's question drives the discussion
-                    agent=professor_agent,
-                    context=context,
-                    whiteboard_aware=True,
-                ),
-                create_discussion_task(
-                    topic=user_question,
-                    agent=expert_agent,
-                    context=context,
-                    whiteboard_aware=True,
-                ),
-                create_discussion_task(
-                    topic=user_question,
-                    agent=devil_advocate_agent,
-                    context=context,
-                    whiteboard_aware=True,
-                ),
-            ]
             
         else:  # Default to explanation
             crew = create_classroom_crew(
                 subject=subject,
-                include_visual_assistant=True,
             )
             expert_agent = next(
                 (a for a in crew.agents if "Expert" in a.role),
@@ -669,7 +634,9 @@ async def study_help(request: StudyHelpRequest):
                     concept=user_question,
                     agent=expert_agent,
                     audience_level="intermediate",
-                    include_visuals=True,
+                    include_visuals=None,  # Auto-detect
+                    context=context,
+                    subject=subject,
                 )
             ]
         

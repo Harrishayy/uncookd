@@ -65,6 +65,27 @@ def prompt_help_type() -> str:
     return "explanation"
 
 
+def prompt_agent_selection() -> Optional[str]:
+    """Prompt user for which agent to ask (optional). Returns a role substring or None."""
+    print("\nAsk a specific agent? (optional)")
+    print("  0. No preference (default)")
+    print("  1. Socratic Mentor")
+    print("  2. Problem Analyst")
+    print("  3. Critical Thinker")
+    print("  4. Peer Student")
+    print("  5. Interdisciplinary Connector")
+
+    choice = get_user_input("Choose [0-5, default: 0]: ")
+    mapping = {
+        "1": "Socratic Mentor",
+        "2": "Problem Analyst",
+        "3": "Critical Thinker",
+        "4": "Peer Student",
+        "5": "Interdisciplinary Connector",
+    }
+    return mapping.get(choice) if choice in mapping else None
+
+
 def print_response(response: dict):
     """Print formatted response"""
     print("\n" + "-"*60)
@@ -118,7 +139,7 @@ def print_response(response: dict):
     print("-"*60 + "\n")
 
 
-async def call_study_help_direct(user_question: str, subject: str, help_type: str):
+async def call_study_help_direct(user_question: str, subject: str, help_type: str, preferred_agent_role: Optional[str]):
     """
     Call the study_help function directly (bypassing HTTP)
     This is faster and doesn't require the server to be running.
@@ -137,7 +158,8 @@ async def call_study_help_direct(user_question: str, subject: str, help_type: st
         user_question=user_question,
         subject=subject,
         help_type=help_type,
-        conversation_history=None
+        conversation_history=None,
+        preferred_agent_role=preferred_agent_role,
     )
     
     # Call the endpoint function directly
@@ -154,7 +176,7 @@ async def call_study_help_direct(user_question: str, subject: str, help_type: st
     }
 
 
-async def call_study_help_http(user_question: str, subject: str, help_type: str):
+async def call_study_help_http(user_question: str, subject: str, help_type: str, preferred_agent_role: Optional[str]):
     """
     Call the study_help endpoint via HTTP
     Requires the server to be running on http://localhost:8000
@@ -165,7 +187,8 @@ async def call_study_help_http(user_question: str, subject: str, help_type: str)
     payload = {
         "user_question": user_question,
         "subject": subject,
-        "help_type": help_type
+        "help_type": help_type,
+        "preferred_agent_role": preferred_agent_role,
     }
     
     try:
@@ -205,15 +228,16 @@ async def main():
             # Get optional parameters
             subject = prompt_subject()
             help_type = prompt_help_type()
+            preferred_agent_role = prompt_agent_selection()
             
             print("\n⏳ Processing your question...")
             print("   (This may take a moment)")
             
             # Call the endpoint
             if use_http:
-                response = await call_study_help_http(question, subject, help_type)
+                response = await call_study_help_http(question, subject, help_type, preferred_agent_role)
             else:
-                response = await call_study_help_direct(question, subject, help_type)
+                response = await call_study_help_direct(question, subject, help_type, preferred_agent_role)
             
             if response:
                 print_response(response)
