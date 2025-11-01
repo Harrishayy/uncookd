@@ -3,14 +3,14 @@ import Footer from "./components/Footer"
 
 export default function Page() {
   return (
-    <main className="min-h-screen flex flex-col bg-black text-white">
+    <main className="min-h-screen flex flex-col bg-gray-950 text-white">
       {/* Header stays at the top */}
       <Header />
 
       {/* Centered hero section */}
       <div className="flex-grow flex items-center justify-center px-6">
         <div className="text-center">
-          <h1 className="text-5xl md:text-6xl font-extrabold">
+          <h1 className="text-5xl md:text-6xl font-extrabold text-gray-100">
             Uncookd
           </h1>
           <p className="mt-4 text-lg md:text-xl max-w-2xl mx-auto font-light text-gray-400">

@@ -52,34 +52,34 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-black border border-gray-800 p-6 text-left align-middle shadow-2xl transition-all">
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-gray-900 border border-gray-700 p-6 text-left align-middle shadow-2xl transition-all">
                 <div className="flex items-center justify-between mb-6">
                   <Dialog.Title
                     as="h3"
-                    className="text-2xl font-bold text-white"
+                    className="text-2xl font-bold text-gray-100"
                   >
                     Add User to Meeting
                   </Dialog.Title>
                   <button
                     onClick={onClose}
-                    className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800 transition-colors"
+                    className="rounded-lg p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-transparent hover:border-gray-600 transition-colors"
                   >
                     <XMarkIcon className="h-5 w-5" />
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
+                <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
                   {users.map((user) => {
                     const isAdded = addedUsers.includes(user.name);
                     return (
                       <div
                         key={user.name}
-                        className="group flex items-center justify-between p-3 rounded-lg bg-black hover:bg-black border border-gray-800 hover:border-gray-700 transition-all"
+                        className="group flex items-center justify-between p-3 rounded-lg bg-gray-800/50 hover:bg-gray-800/70 border border-gray-700 hover:border-gray-600 transition-all"
                       >
                         <div className="flex items-center gap-3">
                           <div className="relative">
                             {user.avatar_url ? (
-                              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-gray-800 group-hover:ring-white transition-all">
+                              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-gray-700 group-hover:ring-gray-600 transition-all">
                                 <Image
                                   src={user.avatar_url}
                                   alt={user.name}
@@ -94,15 +94,15 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
                               </div>
                             )}
                           </div>
-                          <span className="text-white font-medium">{user.name}</span>
+                          <span className="text-gray-100 font-medium">{user.name}</span>
                         </div>
                         <button
                           onClick={() => onAdd(user)}
                           disabled={isAdded}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
                             isAdded
-                              ? "bg-black text-gray-400 cursor-not-allowed border border-gray-800"
-                              : "bg-white text-black hover:bg-gray-100 border border-gray-800"
+                              ? "bg-gray-800/50 text-gray-500 cursor-not-allowed border border-gray-700"
+                              : "bg-white text-black hover:bg-gray-100 border border-gray-600"
                           }`}
                         >
                           {isAdded ? (

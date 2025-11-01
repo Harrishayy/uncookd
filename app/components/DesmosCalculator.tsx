@@ -68,14 +68,14 @@ export default function DesmosCalculator({ isOpen, onClose }: DesmosCalculatorPr
   if (!isOpen) return null;
 
   return (
-    <div className="relative z-5 w-full max-w-6xl mx-8 bg-black rounded-xl shadow-2xl border border-gray-800 overflow-hidden">
-      <div className="p-4 border-b border-gray-800 bg-black flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white">
+    <div className="relative z-5 w-full max-w-6xl mx-8 bg-gray-900 rounded-xl shadow-2xl border border-gray-800 overflow-hidden">
+      <div className="p-4 border-b border-gray-700 bg-gray-900/80 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-gray-100">
           Desmos Graphing Calculator
         </h2>
         <button
           onClick={onClose}
-          className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800 transition-colors"
+          className="rounded-lg p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-transparent hover:border-gray-700 transition-colors"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

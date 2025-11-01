@@ -12,12 +12,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "default", size = "md", ...props }, ref) => {
     const variants = {
       default:
-        "bg-white text-black hover:bg-gray-100 border border-white/20",
+        "bg-white text-black hover:bg-gray-100 border border-gray-600",
       outline:
-        "bg-transparent text-white border border-gray-600 hover:border-white hover:bg-white/5",
-      ghost: "bg-transparent text-white hover:bg-white/5 border-transparent",
+        "bg-transparent text-gray-200 border border-gray-600 hover:border-gray-500 hover:bg-gray-800/50",
+      ghost: "bg-transparent text-gray-300 hover:bg-gray-800/50 border-transparent",
       destructive:
-        "bg-white text-black hover:bg-gray-100 border border-white/20",
+        "bg-white text-black hover:bg-gray-100 border border-gray-600",
     };
 
     const sizes = {

@@ -14,14 +14,14 @@ export default function Header() {
   ];
 
   return (
-    <header className="w-full bg-black border-b border-gray-900 backdrop-blur-xl">
+    <header className="w-full bg-gray-900 border-b border-gray-800 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-6 sm:px-8">
         <nav className="flex items-center justify-between h-16">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
               <span className="text-black font-bold text-sm">U</span>
             </div>
-            <span className="text-xl font-bold text-white">
+            <span className="text-xl font-bold text-gray-100">
               Uncookd
             </span>
           </div>
@@ -37,8 +37,8 @@ export default function Header() {
                   href={item.href}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
                     isActive
-                      ? "bg-white text-black border border-gray-800"
-                      : "text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800"
+                      ? "bg-white text-black border border-gray-700"
+                      : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border border-transparent hover:border-gray-700"
                   }`}
                 >
                   <Icon className="h-4 w-4" />

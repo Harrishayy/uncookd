@@ -35,14 +35,14 @@ export default function MeetingToolbar({
   onSettings: () => void;
 }) {
   return (
-    <div className="p-6 border-t border-gray-800 bg-black/40 backdrop-blur-sm">
+    <div className="p-6 border-t border-gray-700 bg-gray-900/60 backdrop-blur-sm">
       <div className="flex items-center justify-center gap-6 flex-wrap">
         {/* Mute Toggle */}
         <div className={`
           flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-200
           ${!muted 
-            ? "border-gray-700 bg-black/50 hover:bg-black/60" 
-            : "border-gray-800 bg-black/30 hover:bg-black/40"
+            ? "border-gray-600 bg-gray-800/60 hover:bg-gray-800/80" 
+            : "border-gray-700 bg-gray-800/40 hover:bg-gray-800/50"
           }
         `}>
           <div className="flex items-center gap-2">
@@ -68,8 +68,8 @@ export default function MeetingToolbar({
         <div className={`
           flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-200
           ${!deafened 
-            ? "border-gray-700 bg-black/50 hover:bg-black/60" 
-            : "border-gray-800 bg-black/30 hover:bg-black/40"
+            ? "border-gray-600 bg-gray-800/60 hover:bg-gray-800/80" 
+            : "border-gray-700 bg-gray-800/40 hover:bg-gray-800/50"
           }
         `}>
           <div className="flex items-center gap-2">

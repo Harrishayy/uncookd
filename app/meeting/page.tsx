@@ -104,14 +104,14 @@ export default function Page() {
   }, [localStreamRef, startAudioLevelMonitoring, startTranscriptionForStream, cleanup]);
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-gray-950">
       <Header />
       <div className="flex flex-col justify-center items-center min-h-[80vh] py-8 gap-6">
         <audio id="local-preview" className="hidden" />
         <audio id="remote-audio" ref={remoteAudioRef} className="hidden" />
 
-        <div className="relative z-20 bg-black border border-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl mx-8 overflow-hidden">
-          <div className="p-6 border-b border-gray-900 bg-black/50">
+        <div className="relative z-20 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl mx-8 overflow-hidden">
+          <div className="p-6 border-b border-gray-700 bg-gray-900/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
@@ -122,14 +122,14 @@ export default function Page() {
                   />
                   <h1 className="text-2xl font-bold text-white">Active Meeting</h1>
                 </div>
-                <div className="h-6 w-px bg-gray-800" />
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black border border-gray-800">
-                  <UserCircleIcon className="w-5 h-5 text-gray-400" />
-                  <span className="text-white font-medium text-sm">{currentUser.name}</span>
+                <div className="h-6 w-px bg-gray-700" />
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800/50 border border-gray-700">
+                  <UserCircleIcon className="w-5 h-5 text-gray-300" />
+                  <span className="text-gray-100 font-medium text-sm">{currentUser.name}</span>
                 </div>
               </div>
               <button
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-white text-black font-medium hover:bg-gray-100 border border-gray-800 transition-all duration-200"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-white text-black font-medium hover:bg-gray-100 border border-gray-600 transition-all duration-200"
                 onClick={() => setShowModal(true)}
               >
                 <UserPlusIcon className="h-5 w-5" />
@@ -173,8 +173,8 @@ export default function Page() {
             leaveFrom="opacity-100 transform scale-100 translate-y-0"
             leaveTo="opacity-0 transform scale-95 -translate-y-4"
           >
-            <div className="relative z-10 w-full max-w-7xl mx-8 bg-black border border-gray-900 rounded-2xl shadow-2xl overflow-hidden">
-              <div className="p-4 border-b border-gray-900 bg-black/50">
+            <div className="relative z-10 w-full max-w-7xl mx-8 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="p-4 border-b border-gray-700 bg-gray-900/80">
                 <h2 className="text-xl font-bold text-white">Whiteboard</h2>
               </div>
               <div className="h-[600px] bg-white">
