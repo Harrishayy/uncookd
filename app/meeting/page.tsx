@@ -7,12 +7,12 @@ import AddUserModal from "../components/AddUserModal";
 import DeviceConfigModal from "../components/DeviceConfigModal";
 import TldrawBoardEmbedded from "../components/TldrawBoardEmbedded";
 import DesmosCalculator from "../components/DesmosCalculator";
-import useMeetingAudio from "./useMeetingAudio";
 import MeetingArea from "../components/MeetingArea";
 import MeetingToolbar from "../components/MeetingToolbar";
 import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/solid";
 import { Transition } from "@headlessui/react";
-import Footer from "../components/Footer"
+import Footer from "../components/Footer";
+import useMeetingAudio from "./useMeetingAudio";
 
 const allUsers = [
   { name: "John Doe", avatar_url: "https://via.placeholder.com/150" },
@@ -32,18 +32,31 @@ export default function Page() {
   const [showCalculator, setShowCalculator] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState<any>(null);
 
-  const SIGNALING_URL =
-    process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8888";
+  const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8888";
 
   const {
     muted,
     deafened,
     isSpeaking,
+    transcript,
+    localStreamRef,
     remoteAudioRef,
     handleMute,
     handleDeafen,
     cleanup,
-  } = useMeetingAudio(SIGNALING_URL);
+    startAudioLevelMonitoring,
+    startTranscriptionForStream,
+    } = useMeetingAudio(SIGNALING_URL, {
+    onTranscription: (entry) => {
+      // This is where you can send each transcript entry to your backend
+      // fetch("/api/transcript", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify(entry),
+      // });
+      console.log(entry);
+    },
+  });
 
   const handleAddUser = (user: { name: string; avatar_url: string }) => {
     setMeetingUsers((prev) => {
@@ -56,29 +69,39 @@ export default function Page() {
   };
 
   const handleRemoveUser = (userName: string) => {
-    setMeetingUsers((prev) => prev.filter(name => name !== userName));
+    setMeetingUsers((prev) => prev.filter((name) => name !== userName));
   };
 
   const currentUser = { name: "You", avatar_url: "" };
 
   useEffect(() => {
-    const saved = typeof window !== "undefined" && localStorage.getItem("meetingDevices");
-    if (!saved) setShowConfig(true);
-    return () => cleanup();
-  }, []);
+    let isMounted = true;
 
-  const handleAgentComplete = () => {
-    console.log('Agent completed task');
-    setAgentPrompt(null);
-  };
+    const initAudio = async () => {
+      try {
+        // Ask for microphone access
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!isMounted) return;
 
-  const handleAgentError = (error: any) => {
-    console.error('Agent error:', error);
-  };
+        localStreamRef.current = stream;
 
-  const handlePromptSubmit = (prompt: string) => {
-    setAgentPrompt({ message: prompt, type: 'user' });
-  };
+        // Start audio level monitoring
+        startAudioLevelMonitoring(stream);
+
+        // Start transcription (WebSpeech API or chunked fallback)
+        await startTranscriptionForStream(stream);
+      } catch (err) {
+        console.error("Failed to access microphone:", err);
+      }
+    };
+
+    initAudio();
+
+    return () => {
+      isMounted = false;
+      cleanup();
+    };
+  }, [localStreamRef, startAudioLevelMonitoring, startTranscriptionForStream, cleanup]);
 
   return (
     <div className="min-h-screen bg-black">
@@ -88,15 +111,16 @@ export default function Page() {
         <audio id="remote-audio" ref={remoteAudioRef} className="hidden" />
 
         <div className="relative z-20 bg-black border border-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl mx-8 overflow-hidden">
-          {/* Header */}
           <div className="p-6 border-b border-gray-900 bg-black/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-white animate-pulse" />
-                  <h1 className="text-2xl font-bold text-white">
-                    Active Meeting
-                  </h1>
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      isSpeaking ? "bg-green-400 animate-pulse" : "bg-white"
+                    }`}
+                  />
+                  <h1 className="text-2xl font-bold text-white">Active Meeting</h1>
                 </div>
                 <div className="h-6 w-px bg-gray-800" />
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black border border-gray-800">
@@ -117,7 +141,7 @@ export default function Page() {
           {/* Meeting Area */}
           <MeetingArea
             currentUser={currentUser}
-            otherUsers={allUsers.filter(u => meetingUsers.includes(u.name))}
+            otherUsers={allUsers.filter((u) => meetingUsers.includes(u.name))}
             onAddClick={() => setShowModal(true)}
             onRemoveUser={handleRemoveUser}
           />
@@ -151,18 +175,16 @@ export default function Page() {
           >
             <div className="relative z-10 w-full max-w-7xl mx-8 bg-black border border-gray-900 rounded-2xl shadow-2xl overflow-hidden">
               <div className="p-4 border-b border-gray-900 bg-black/50">
-                <h2 className="text-xl font-bold text-white">
-                  Whiteboard
-                </h2>
+                <h2 className="text-xl font-bold text-white">Whiteboard</h2>
               </div>
               <div className="h-[600px] bg-white">
                 <TldrawBoardEmbedded
                   boardId="meeting-whiteboard"
                   agentPrompt={agentPrompt}
                   showAgentUI={true}
-                  onAgentComplete={handleAgentComplete}
-                  onAgentError={handleAgentError}
-                  onPromptSubmit={handlePromptSubmit}
+                  onAgentComplete={() => {}}
+                  onAgentError={() => {}}
+                  onPromptSubmit={() => {}}
                 />
               </div>
             </div>
@@ -170,10 +192,7 @@ export default function Page() {
         )}
 
         {/* Desmos Calculator */}
-        <DesmosCalculator
-          isOpen={showCalculator}
-          onClose={() => setShowCalculator(false)}
-        />
+        <DesmosCalculator isOpen={showCalculator} onClose={() => setShowCalculator(false)} />
       </div>
 
       {/* Modals */}
@@ -185,11 +204,8 @@ export default function Page() {
         addedUsers={meetingUsers}
       />
 
-      <DeviceConfigModal
-        isOpen={showConfig}
-        onClose={() => setShowConfig(false)}
-        onConfirm={() => setShowConfig(false)}
-      />
+      <DeviceConfigModal isOpen={showConfig} onClose={() => setShowConfig(false)} onConfirm={() => setShowConfig(false)} />
+      <Footer />
     </div>
   );
 }

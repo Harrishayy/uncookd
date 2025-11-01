@@ -14,7 +14,7 @@ export default function Page() {
             Uncookd
           </h1>
           <p className="mt-4 text-lg md:text-xl max-w-2xl mx-auto font-light text-gray-400">
-            A collaborative virtual classroom where you and personalized AI agents
+            A collaborative virtual classroom where you and personalised AI agents
             can debate, discuss, and visualise ideas together — all on a shared
             whiteboard.
           </p>

@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useRef } from "react";
 import {
   startLiveTranscriptionWithWebSpeech,
@@ -7,10 +8,22 @@ import {
 } from "./audioTranscriber";
 import { cleanupAudioAndConnections } from "./cleanupAudio";
 
-export default function useMeetingAudio(SIGNALING_URL: string) {
+export interface TranscriptEntry {
+  text: string;
+  timestamp: number; // milliseconds since epoch
+  isFinal: boolean;
+}
+
+export default function useMeetingAudio(
+  SIGNALING_URL: string,
+  options?: {
+    onTranscription?: (entry: TranscriptEntry) => void;
+  }
+) {
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -44,7 +57,11 @@ export default function useMeetingAudio(SIGNALING_URL: string) {
   const startTranscriptionForStream = async (stream: MediaStream) => {
     try {
       const webRec = startLiveTranscriptionWithWebSpeech(
-        (text, isFinal) => console.log("WebSpeech:", text, isFinal),
+        (text, isFinal) => {
+          const entry: TranscriptEntry = { text, isFinal, timestamp: Date.now() };
+          setTranscript(prev => [...prev, entry]);
+          options?.onTranscription?.(entry);
+        },
         (err) => console.warn("Speech error:", err)
       );
       if (webRec?.available) {
@@ -56,7 +73,11 @@ export default function useMeetingAudio(SIGNALING_URL: string) {
     const recorder = startRecordingChunks(stream, async (blob) => {
       try {
         const res = await uploadChunkForTranscription(blob);
-        if ((res as any).text) console.log("Server transcription:", (res as any).text);
+        if ((res as any).text) {
+          const entry: TranscriptEntry = { text: (res as any).text, isFinal: true, timestamp: Date.now() };
+          setTranscript(prev => [...prev, entry]);
+          options?.onTranscription?.(entry);
+        }
       } catch (err) {
         console.warn("Upload/transcription failed", err);
       }
@@ -127,6 +148,7 @@ export default function useMeetingAudio(SIGNALING_URL: string) {
     muted,
     deafened,
     isSpeaking,
+    transcript,
     localStreamRef,
     remoteAudioRef,
     handleMute,
@@ -134,5 +156,6 @@ export default function useMeetingAudio(SIGNALING_URL: string) {
     cleanup,
     startAudioLevelMonitoring,
     startTranscriptionForStream,
+    stopTranscription,
   };
 }
