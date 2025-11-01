@@ -15,8 +15,19 @@ pip install -r requirements.txt
 2. **Configure environment variables:**
 ```bash
 cp .env.example .env
-# Edit .env and add your API keys
+# Edit .env and add your Gemini API key
 ```
+
+   **Get your Gemini API Key:**
+   - Visit [Google AI Studio](https://ai.google.dev/)
+   - Sign in with your Google account
+   - Click "Get API Key" and create a new key
+   - Copy the key and add it to your `.env` file:
+     ```
+     GEMINI_API_KEY=your_api_key_here
+     ```
+
+   **Note:** The backend uses Google's official `google-generativeai` SDK with a minimal LangChain wrapper (`langchain-google-genai`) for CrewAI compatibility. If no `GEMINI_API_KEY` is provided, CrewAI will use its default LLM provider.
 
 3. **Run the server:**
 ```bash
