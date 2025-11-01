@@ -6,7 +6,10 @@ in a virtual classroom environment with whiteboard support.
 
 from crewai import Agent, Task, Crew
 from typing import List, Optional, Dict, Any
-from agents.tools.whiteboard_tool import WhiteboardVisualTool, WhiteboardVisualToolFlexible
+from agents.tools.whiteboard_tool import (
+    WhiteboardVisualTool,
+    WhiteboardVisualToolFlexible,
+)
 import re
 
 
@@ -14,130 +17,247 @@ import re
 # WHITEBOARD AWARENESS UTILITY
 # ============================================================================
 
+
 def should_use_whiteboard(
-    topic: str,
-    context: Optional[Dict[str, Any]] = None,
-    subject: str = "general"
+    topic: str, context: Optional[Dict[str, Any]] = None, subject: str = "general"
 ) -> bool:
     """
     Determine if a question/topic would benefit from visual representation.
-    
+
     This function analyzes the topic and context to determine if visual aids
     (graphs, diagrams, charts) would be helpful for understanding.
-    
+
     Args:
         topic: The question or topic being discussed
         context: Additional context (conversation history, user message, etc.)
         subject: The subject area (mathematics, physics, etc.)
-    
+
     Returns:
         True if visual representation would benefit understanding, False otherwise
     """
     topic_lower = topic.lower()
     context_str = ""
-    
+
     # Extract text from context if available
     if context:
         if isinstance(context, dict):
             # Get user message and conversation history
             user_msg = context.get("user_message", "")
             conv_history = context.get("conversation_history", [])
-            
+
             # Build context string from history
             if conv_history:
-                history_text = " ".join([
-                    msg.get("message", "") if isinstance(msg, dict) else str(msg)
-                    for msg in conv_history[-3:]  # Last 3 messages
-                ])
+                history_text = " ".join(
+                    [
+                        msg.get("message", "") if isinstance(msg, dict) else str(msg)
+                        for msg in conv_history[-3:]  # Last 3 messages
+                    ]
+                )
                 context_str = f"{user_msg} {history_text}".lower()
             else:
                 context_str = user_msg.lower()
-    
+
     # Combine topic and context for analysis
     full_text = f"{topic_lower} {context_str}".lower()
-    
+
     # Subject-specific visual indicators
     visual_subjects = {
-        "mathematics": ["graph", "plot", "function", "equation", "derivative", 
-                       "integral", "curve", "slope", "intercept", "parabola",
-                       "solve", "calculate", "quadratic", "linear", "exponential",
-                       "geometric", "shape", "angle", "triangle", "circle"],
-        "physics": ["force", "wave", "motion", "diagram", "circuit", "electric",
-                   "magnetic", "field", "particle", "atom", "molecule", "energy",
-                   "acceleration", "velocity", "trajectory", "interference"],
-        "biology": ["cell", "molecule", "process", "cycle", "structure", "diagram",
-                   "organism", "system", "pathway", "anatomy", "physiology"],
-        "chemistry": ["molecule", "reaction", "compound", "structure", "bond",
-                     "periodic", "table", "equation", "formula"],
-        "geometry": ["shape", "angle", "triangle", "circle", "square", "polygon",
-                    "area", "perimeter", "volume", "surface", "diagram"],
-        "general": ["visual", "diagram", "graph", "chart", "plot", "illustrate",
-                   "show", "draw", "sketch", "represent", "model"]
+        "mathematics": [
+            "graph",
+            "plot",
+            "function",
+            "equation",
+            "derivative",
+            "integral",
+            "curve",
+            "slope",
+            "intercept",
+            "parabola",
+            "solve",
+            "calculate",
+            "quadratic",
+            "linear",
+            "exponential",
+            "geometric",
+            "shape",
+            "angle",
+            "triangle",
+            "circle",
+        ],
+        "physics": [
+            "force",
+            "wave",
+            "motion",
+            "diagram",
+            "circuit",
+            "electric",
+            "magnetic",
+            "field",
+            "particle",
+            "atom",
+            "molecule",
+            "energy",
+            "acceleration",
+            "velocity",
+            "trajectory",
+            "interference",
+        ],
+        "biology": [
+            "cell",
+            "molecule",
+            "process",
+            "cycle",
+            "structure",
+            "diagram",
+            "organism",
+            "system",
+            "pathway",
+            "anatomy",
+            "physiology",
+        ],
+        "chemistry": [
+            "molecule",
+            "reaction",
+            "compound",
+            "structure",
+            "bond",
+            "periodic",
+            "table",
+            "equation",
+            "formula",
+        ],
+        "geometry": [
+            "shape",
+            "angle",
+            "triangle",
+            "circle",
+            "square",
+            "polygon",
+            "area",
+            "perimeter",
+            "volume",
+            "surface",
+            "diagram",
+        ],
+        "general": [
+            "visual",
+            "diagram",
+            "graph",
+            "chart",
+            "plot",
+            "illustrate",
+            "show",
+            "draw",
+            "sketch",
+            "represent",
+            "model",
+        ],
     }
-    
+
     # Get relevant keywords for the subject
     keywords = visual_subjects.get(subject.lower(), visual_subjects["general"])
     keywords.extend(visual_subjects["general"])  # Always include general keywords
-    
+
     # Check for visual-related keywords
     visual_keywords = [
-        "graph", "plot", "chart", "diagram", "visual", "illustration",
-        "show", "draw", "sketch", "picture", "image", "figure",
-        "equation", "formula", "function", "solve", "calculate",
-        "shape", "geometry", "geometric", "visualize", "represent",
-        "model", "structure", "process", "flow", "relationship"
+        "graph",
+        "plot",
+        "chart",
+        "diagram",
+        "visual",
+        "illustration",
+        "show",
+        "draw",
+        "sketch",
+        "picture",
+        "image",
+        "figure",
+        "equation",
+        "formula",
+        "function",
+        "solve",
+        "calculate",
+        "shape",
+        "geometry",
+        "geometric",
+        "visualize",
+        "represent",
+        "model",
+        "structure",
+        "process",
+        "flow",
+        "relationship",
     ]
-    
+
     # Check for mathematical/scientific patterns
-    has_equation = bool(re.search(r'[x-y]=|f\(x\)|=|\+|−|×|÷|√|∫|∑|π', full_text))
-    has_numbers = bool(re.search(r'\d+', full_text))
+    has_equation = bool(re.search(r"[x-y]=|f\(x\)|=|\+|−|×|÷|√|∫|∑|π", full_text))
+    has_numbers = bool(re.search(r"\d+", full_text))
     has_visual_request = any(keyword in full_text for keyword in visual_keywords)
     has_subject_keywords = any(keyword in full_text for keyword in keywords)
-    
+
     # Special patterns that suggest visual needs
     visual_patterns = [
-        r'how\s+(to|do|does|can)',
-        r'what\s+(is|are|does|do)',
-        r'explain\s+(the|how|what)',
-        r'show\s+(me|how)',
-        r'visualize',
-        r'illustrate',
-        r'demonstrate',
-        r'compare',
-        r'difference\s+between',
-        r'relationship',
-        r'pattern',
+        r"how\s+(to|do|does|can)",
+        r"what\s+(is|are|does|do)",
+        r"explain\s+(the|how|what)",
+        r"show\s+(me|how)",
+        r"visualize",
+        r"illustrate",
+        r"demonstrate",
+        r"compare",
+        r"difference\s+between",
+        r"relationship",
+        r"pattern",
     ]
-    
-    has_visual_pattern = any(re.search(pattern, full_text, re.IGNORECASE) 
-                            for pattern in visual_patterns)
-    
+
+    has_visual_pattern = any(
+        re.search(pattern, full_text, re.IGNORECASE) for pattern in visual_patterns
+    )
+
     # Check if context explicitly requests visual
-    explicit_visual_request = any(word in full_text for word in [
-        "visual", "diagram", "graph", "chart", "picture", "draw", "show visually"
-    ])
-    
+    explicit_visual_request = any(
+        word in full_text
+        for word in [
+            "visual",
+            "diagram",
+            "graph",
+            "chart",
+            "picture",
+            "draw",
+            "show visually",
+        ]
+    )
+
     # Decision logic: True if any strong indicators
     should_use = (
-        explicit_visual_request or
-        (has_equation and has_numbers) or  # Mathematical expressions
-        (has_visual_request and has_subject_keywords) or  # Subject-specific visuals
-        has_visual_pattern or  # Patterns suggesting need for visuals
-        (has_subject_keywords and subject.lower() in ["mathematics", "physics", 
-                                                       "geometry", "chemistry"])  # Strong visual subjects
+        explicit_visual_request
+        or (has_equation and has_numbers)  # Mathematical expressions
+        or (has_visual_request and has_subject_keywords)  # Subject-specific visuals
+        or has_visual_pattern  # Patterns suggesting need for visuals
+        or (
+            has_subject_keywords
+            and subject.lower() in ["mathematics", "physics", "geometry", "chemistry"]
+        )  # Strong visual subjects
     )
-    
+
     # Exclude cases that definitely don't need visuals
     text_only_indicators = [
-        "define", "meaning", "word", "phrase", "concept (without visual)",
-        "history", "story", "narrative", "explain in words"
+        "define",
+        "meaning",
+        "word",
+        "phrase",
+        "concept (without visual)",
+        "history",
+        "story",
+        "narrative",
+        "explain in words",
     ]
-    
+
     if any(indicator in full_text for indicator in text_only_indicators):
         # But still allow if explicitly requested
         if not explicit_visual_request:
             should_use = False
-    
+
     return should_use
 
 
@@ -174,7 +294,7 @@ def create_professor_agent(
         When a visual aid is needed, you will ask the Domain Analyst to 
         'show us' by calling the `Whiteboard_Visual_Tool`.""",
         verbose=True,
-        allow_delegation=True, # Can delegate tasks to the Analyst or Thinker
+        allow_delegation=True,  # Can delegate tasks to the Analyst or Thinker
     )
 
 
@@ -204,8 +324,9 @@ def create_subject_expert_agent(
         (e.g., 'solving y=x^2-4'), you MUST use the `Whiteboard_Visual_Tool` 
         to plot the graph and mark the roots on the communal whiteboard.""",
         verbose=True,
-        allow_delegation=False, # Focuses on its task
+        allow_delegation=False,  # Focuses on its task
     )
+
 
 def create_devils_advocate_agent(challenge_level: str = "moderate"):
     """
@@ -255,7 +376,8 @@ def create_peer_student_agent(background: str = "curious learner"):
         verbose=True,
         allow_delegation=False,
     )
-    
+
+
 def create_interdisciplinary_connector_agent():
     """
     Create a "Discovery Engine" agent that connects ideas across fields.
@@ -301,9 +423,13 @@ def create_discussion_task(
     # Auto-determine if whiteboard would be helpful
     if whiteboard_aware is None:
         whiteboard_aware = should_use_whiteboard(topic, context, subject)
-    
+
     # Conditionally attach whiteboard tools (standard and flexible wrapper)
-    task_tools = [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()] if whiteboard_aware else []
+    task_tools = (
+        [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
+        if whiteboard_aware
+        else []
+    )
 
     whiteboard_instruction = ""
     if whiteboard_aware:
@@ -327,7 +453,7 @@ def create_discussion_task(
         If you're a challenger, ask critical questions. If you're a student, ask questions and share thoughts.""",
         agent=agent,
         expected_output="A conversational response that contributes to the discussion, potentially including whiteboard suggestions",
-        tools=task_tools if task_tools else []  # Only include tools if relevant
+        tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 
 
@@ -375,9 +501,13 @@ def create_explanation_task(
     # Auto-determine if visuals would be helpful
     if include_visuals is None:
         include_visuals = should_use_whiteboard(concept, context, subject)
-    
+
     # Conditionally attach whiteboard tools (standard and flexible wrapper)
-    task_tools = [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()] if include_visuals else []
+    task_tools = (
+        [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
+        if include_visuals
+        else []
+    )
 
     visual_instruction = ""
     if include_visuals:
@@ -397,7 +527,7 @@ def create_explanation_task(
         Make your explanation clear, intuitive, and engaging.""",
         agent=agent,
         expected_output=f"A clear explanation of {concept} appropriate for {audience_level} students, with visual suggestions if relevant",
-        tools=task_tools if task_tools else []  # Only include tools if relevant
+        tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 
 
@@ -406,7 +536,7 @@ def create_whiteboard_content_task(
 ) -> Task:
     """
     Create a task for generating whiteboard content descriptions
-    
+
     Note: This is kept for backward compatibility. In most cases, agents should
     use the WhiteboardVisualTool directly instead of requiring a separate task.
 
@@ -450,8 +580,8 @@ def create_classroom_crew(
             - expert_level: "beginner" | "intermediate" | "advanced"
             - challenge_level: "mild" | "moderate" | "aggressive"
             - student_background: e.g., "curious learner"
-    
-    Note: Visual learning is handled via tools - agents automatically use 
+
+    Note: Visual learning is handled via tools - agents automatically use
     generate_whiteboard_visual tool when they need visual explanations.
     """
     config = agents_config or {}
@@ -646,7 +776,7 @@ def create_debate_crew(
     crew = Crew(
         agents=[professor, expert, devils_advocate],
         tasks=tasks,
-        verbose=True,
+        verbose=True,  # change to false for small innit
         process="sequential",
     )
 

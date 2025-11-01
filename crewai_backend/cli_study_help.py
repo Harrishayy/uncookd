@@ -141,7 +141,12 @@ def print_response(response: dict):
     print("-" * 60 + "\n")
 
 
-async def call_study_help_direct(user_question: str, subject: str, help_type: str, preferred_agent_role: Optional[str]):
+async def call_study_help_direct(
+    user_question: str,
+    subject: str,
+    help_type: str,
+    preferred_agent_role: Optional[str],
+):
     """
     Call the study_help function directly (bypassing HTTP)
     This is faster and doesn't require the server to be running.
@@ -160,7 +165,7 @@ async def call_study_help_direct(user_question: str, subject: str, help_type: st
         user_question=user_question,
         subject=subject,
         help_type=help_type,
-        conversation_history=None,,
+        conversation_history=None,
         preferred_agent_role=preferred_agent_role,
     )
 
@@ -178,7 +183,12 @@ async def call_study_help_direct(user_question: str, subject: str, help_type: st
     }
 
 
-async def call_study_help_http(user_question: str, subject: str, help_type: str, preferred_agent_role: Optional[str]):
+async def call_study_help_http(
+    user_question: str,
+    subject: str,
+    help_type: str,
+    preferred_agent_role: Optional[str],
+):
     """
     Call the study_help endpoint via HTTP
     Requires the server to be running on http://localhost:8000
@@ -190,7 +200,7 @@ async def call_study_help_http(user_question: str, subject: str, help_type: str,
         "user_question": user_question,
         "subject": subject,
         "help_type": help_type,
-        "preferred_agent_role": preferred_agent_role,,
+        "preferred_agent_role": preferred_agent_role,
     }
 
     try:
@@ -237,9 +247,13 @@ async def main():
 
             # Call the endpoint
             if use_http:
-                response = await call_study_help_http(question, subject, help_type, preferred_agent_role)
+                response = await call_study_help_http(
+                    question, subject, help_type, preferred_agent_role
+                )
             else:
-                response = await call_study_help_direct(question, subject, help_type, preferred_agent_role)
+                response = await call_study_help_direct(
+                    question, subject, help_type, preferred_agent_role
+                )
 
             if response:
                 print_response(response)
