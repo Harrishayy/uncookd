@@ -12,6 +12,8 @@ import {
   MicrophoneIcon as MicrophoneIconOutline,
   SpeakerWaveIcon as SpeakerWaveIconOutline 
 } from "@heroicons/react/24/outline";
+import { Toggle } from "./ui/toggle";
+import { Button } from "./ui/button";
 
 export default function MeetingToolbar({
   muted,
@@ -25,85 +27,109 @@ export default function MeetingToolbar({
 }: {
   muted: boolean;
   deafened: boolean;
-  onMute: () => void;
-  onDeafen: () => void;
+  onMute: (newMuted: boolean) => void;
+  onDeafen: (newDeafened: boolean) => void;
   onWhiteboard: () => void;
   onCalculator: () => void;
   onLeave: () => void;
   onSettings: () => void;
 }) {
   return (
-    <div className="p-6 border-t border-white/10 bg-gradient-to-r from-gray-900/80 via-gray-800/80 to-gray-900/80 backdrop-blur-sm">
-      <div className="flex items-center justify-center gap-3 flex-wrap">
-        {/* Mute Button */}
-        <button
-          onClick={() => onMute(!muted)}
-          className={`group relative flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
-            muted
-              ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30"
-              : "bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95"
-          }`}
-        >
-          {muted ? (
-            <MicrophoneIcon className="h-5 w-5" />
-          ) : (
-            <MicrophoneIconOutline className="h-5 w-5" />
-          )}
-          <span className="hidden sm:inline">{muted ? "Unmute" : "Mute"}</span>
-        </button>
+    <div className="p-6 border-t border-gray-800 bg-black/40 backdrop-blur-sm">
+      <div className="flex items-center justify-center gap-6 flex-wrap">
+        {/* Mute Toggle */}
+        <div className={`
+          flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-200
+          ${!muted 
+            ? "border-gray-700 bg-black/50 hover:bg-black/60" 
+            : "border-gray-800 bg-black/30 hover:bg-black/40"
+          }
+        `}>
+          <div className="flex items-center gap-2">
+            {!muted ? (
+              <MicrophoneIcon className="h-5 w-5 text-white" />
+            ) : (
+              <MicrophoneIconOutline className="h-5 w-5 text-gray-500" />
+            )}
+            <span className={`text-sm font-medium hidden sm:inline ${
+              !muted ? "text-white" : "text-gray-400"
+            }`}>
+              Microphone
+            </span>
+          </div>
+          <Toggle
+            checked={!muted}
+            onCheckedChange={(checked) => onMute(!checked)}
+            size="md"
+          />
+        </div>
 
-        {/* Deafen Button */}
-        <button
-          onClick={() => onDeafen(!deafened)}
-          className={`group relative flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 ${
-            deafened
-              ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30"
-              : "bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95"
-          }`}
-        >
-          {deafened ? (
-            <SpeakerWaveIcon className="h-5 w-5" />
-          ) : (
-            <SpeakerWaveIconOutline className="h-5 w-5" />
-          )}
-          <span className="hidden sm:inline">{deafened ? "Undeafen" : "Deafen"}</span>
-        </button>
+        {/* Deafen Toggle */}
+        <div className={`
+          flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-200
+          ${!deafened 
+            ? "border-gray-700 bg-black/50 hover:bg-black/60" 
+            : "border-gray-800 bg-black/30 hover:bg-black/40"
+          }
+        `}>
+          <div className="flex items-center gap-2">
+            {!deafened ? (
+              <SpeakerWaveIcon className="h-5 w-5 text-white" />
+            ) : (
+              <SpeakerWaveIconOutline className="h-5 w-5 text-gray-500" />
+            )}
+            <span className={`text-sm font-medium hidden sm:inline ${
+              !deafened ? "text-white" : "text-gray-400"
+            }`}>
+              Audio
+            </span>
+          </div>
+          <Toggle
+            checked={!deafened}
+            onCheckedChange={(checked) => onDeafen(!checked)}
+            size="md"
+          />
+        </div>
 
-        {/* Whiteboard Button */}
-        <button
+        {/* Whiteboard Toggle */}
+        <Button
+          variant="outline"
           onClick={onWhiteboard}
-          className="group flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all duration-200"
+          className="gap-2"
         >
           <RectangleStackIcon className="h-5 w-5" />
           <span className="hidden sm:inline">Whiteboard</span>
-        </button>
+        </Button>
 
-        {/* Calculator Button */}
-        <button
+        {/* Calculator Toggle */}
+        <Button
+          variant="outline"
           onClick={onCalculator}
-          className="group flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all duration-200"
+          className="gap-2"
         >
           <CalculatorIcon className="h-5 w-5" />
           <span className="hidden sm:inline">Calculator</span>
-        </button>
+        </Button>
 
         {/* Settings Button */}
-        <button
+        <Button
+          variant="ghost"
           onClick={onSettings}
-          className="group flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:scale-105 active:scale-95 transition-all duration-200"
+          className="gap-2"
         >
           <Cog6ToothIcon className="h-5 w-5" />
           <span className="hidden sm:inline">Settings</span>
-        </button>
+        </Button>
 
         {/* Leave Button */}
-        <button
+        <Button
+          variant="default"
           onClick={onLeave}
-          className="group flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-gradient-to-r from-red-600 to-red-500 text-white border border-red-500/50 hover:from-red-500 hover:to-red-400 hover:scale-105 active:scale-95 shadow-lg shadow-red-500/25 transition-all duration-200"
+          className="gap-2 bg-white text-black hover:bg-gray-100"
         >
           <ArrowRightOnRectangleIcon className="h-5 w-5" />
           <span className="hidden sm:inline">Leave</span>
-        </button>
+        </Button>
       </div>
     </div>
   );

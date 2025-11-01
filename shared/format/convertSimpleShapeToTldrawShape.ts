@@ -406,13 +406,19 @@ function convertGeoShapeToTldrawShape(
 	}
 
 	// Handle fill properly - simpleShape takes priority
+	// Ensure fill is always a valid value: "none", "semi", "solid", "pattern", or "fill"
 	let fill
-	if (simpleShape.fill !== undefined) {
-		fill = convertSimpleFillToTldrawFill(simpleShape.fill)
-	} else if (defaultGeoShape.props?.fill) {
+	if (simpleShape.fill !== undefined && simpleShape.fill !== null) {
+		const convertedFill = convertSimpleFillToTldrawFill(simpleShape.fill)
+		if (convertedFill && ['none', 'semi', 'solid', 'pattern', 'fill'].includes(convertedFill)) {
+			fill = convertedFill
+		} else {
+			fill = 'none'
+		}
+	} else if (defaultGeoShape.props?.fill && ['none', 'semi', 'solid', 'pattern', 'fill'].includes(defaultGeoShape.props.fill)) {
 		fill = defaultGeoShape.props.fill
 	} else {
-		fill = convertSimpleFillToTldrawFill('none')
+		fill = 'none'
 	}
 
 	return {

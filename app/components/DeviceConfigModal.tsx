@@ -81,18 +81,18 @@ export default function DeviceConfigModal({ onClose, onConfirm, isOpen }: Props)
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6 text-left align-middle shadow-2xl ring-1 ring-white/10 transition-all">
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-black border border-gray-800 p-6 text-left align-middle shadow-2xl transition-all">
                 <div className="flex items-center justify-between mb-6">
                   <Dialog.Title
                     as="h3"
-                    className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent flex items-center gap-2"
+                    className="text-2xl font-bold text-white flex items-center gap-2"
                   >
-                    <Cog6ToothIcon className="h-6 w-6 text-blue-400" />
+                    <Cog6ToothIcon className="h-6 w-6 text-white" />
                     Meeting Setup
                   </Dialog.Title>
                   <button
                     onClick={onClose}
-                    className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                    className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800 transition-colors"
                   >
                     <XMarkIcon className="h-5 w-5" />
                   </button>
@@ -100,26 +100,26 @@ export default function DeviceConfigModal({ onClose, onConfirm, isOpen }: Props)
 
                 {loading ? (
                   <div className="py-8 text-center">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
                     <p className="mt-4 text-sm text-gray-400">Detecting audio devices…</p>
                   </div>
                 ) : error ? (
-                  <div className="py-4 px-4 rounded-xl bg-red-500/20 border border-red-500/30">
-                    <p className="text-sm text-red-400">{error}</p>
+                  <div className="py-4 px-4 rounded-lg bg-black border border-gray-800">
+                    <p className="text-sm text-gray-300">{error}</p>
                   </div>
                 ) : (
                   <div className="space-y-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-white mb-2">
                         Microphone
                       </label>
                       <select
                         value={selectedInput}
                         onChange={e => setSelectedInput(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        className="w-full px-4 py-3 rounded-lg bg-black border border-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-white/20 focus:border-white transition-all"
                       >
                         {inputs.map(inp => (
-                          <option key={inp.deviceId} value={inp.deviceId} className="bg-gray-800">
+                          <option key={inp.deviceId} value={inp.deviceId} className="bg-black">
                             {inp.label || `Microphone ${inputs.indexOf(inp) + 1}`}
                           </option>
                         ))}
@@ -127,16 +127,16 @@ export default function DeviceConfigModal({ onClose, onConfirm, isOpen }: Props)
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-white mb-2">
                         Headphones / Output
                       </label>
                       <select
                         value={selectedOutput}
                         onChange={e => setSelectedOutput(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        className="w-full px-4 py-3 rounded-lg bg-black border border-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-white/20 focus:border-white transition-all"
                       >
                         {outputs.map(out => (
-                          <option key={out.deviceId} value={out.deviceId} className="bg-gray-800">
+                          <option key={out.deviceId} value={out.deviceId} className="bg-black">
                             {out.label || `Speaker ${outputs.indexOf(out) + 1}`}
                           </option>
                         ))}
@@ -145,13 +145,13 @@ export default function DeviceConfigModal({ onClose, onConfirm, isOpen }: Props)
 
                     <div className="flex items-center justify-end gap-3 pt-4">
                       <button
-                        className="px-6 py-2.5 rounded-xl bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-all"
+                        className="px-6 py-2.5 rounded-lg bg-black text-white border border-gray-800 hover:bg-gray-900 hover:border-gray-700 transition-all"
                         onClick={onClose}
                       >
                         Cancel
                       </button>
                       <button
-                        className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-purple-500 text-white font-medium hover:from-blue-600 hover:to-purple-600 shadow-lg shadow-blue-500/25 transition-all"
+                        className="px-6 py-2.5 rounded-lg bg-white text-black font-medium hover:bg-gray-100 border border-gray-800 transition-all"
                         onClick={handleConfirm}
                       >
                         Join Meeting

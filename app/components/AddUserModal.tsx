@@ -52,34 +52,34 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6 text-left align-middle shadow-2xl ring-1 ring-white/10 transition-all">
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-xl bg-black border border-gray-800 p-6 text-left align-middle shadow-2xl transition-all">
                 <div className="flex items-center justify-between mb-6">
                   <Dialog.Title
                     as="h3"
-                    className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent"
+                    className="text-2xl font-bold text-white"
                   >
                     Add User to Meeting
                   </Dialog.Title>
                   <button
                     onClick={onClose}
-                    className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                    className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800 transition-colors"
                   >
                     <XMarkIcon className="h-5 w-5" />
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+                <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-800 scrollbar-track-transparent">
                   {users.map((user) => {
                     const isAdded = addedUsers.includes(user.name);
                     return (
                       <div
                         key={user.name}
-                        className="group flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all"
+                        className="group flex items-center justify-between p-3 rounded-lg bg-black hover:bg-black border border-gray-800 hover:border-gray-700 transition-all"
                       >
                         <div className="flex items-center gap-3">
                           <div className="relative">
                             {user.avatar_url ? (
-                              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-white/20 group-hover:ring-blue-400/50 transition-all">
+                              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-gray-800 group-hover:ring-white transition-all">
                                 <Image
                                   src={user.avatar_url}
                                   alt={user.name}
@@ -89,8 +89,8 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
                                 />
                               </div>
                             ) : (
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-                                <UserPlusIcon className="h-6 w-6 text-white" />
+                              <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center">
+                                <UserPlusIcon className="h-6 w-6 text-black" />
                               </div>
                             )}
                           </div>
@@ -101,8 +101,8 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
                           disabled={isAdded}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
                             isAdded
-                              ? "bg-emerald-500/20 text-emerald-400 cursor-not-allowed border border-emerald-500/30"
-                              : "bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 hover:scale-105 active:scale-95 shadow-lg shadow-blue-500/25"
+                              ? "bg-black text-gray-400 cursor-not-allowed border border-gray-800"
+                              : "bg-white text-black hover:bg-gray-100 border border-gray-800"
                           }`}
                         >
                           {isAdded ? (

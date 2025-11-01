@@ -2,12 +2,12 @@
 
 export default function Footer() {
   return (
-    <footer className="w-full bg-gradient-to-r from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border-t border-white/10 shadow-inner mt-12">
+    <footer className="w-full bg-black border-t border-gray-800 backdrop-blur-xl mt-12">
       <div className="max-w-7xl mx-auto px-6 sm:px-8">
         <div className="flex flex-col sm:flex-row items-center justify-between h-16 text-gray-400 text-sm">
           <p className="text-center sm:text-left">
             © {new Date().getFullYear()}{" "}
-            <span className="font-semibold text-gray-200">Uncookd</span>. All
+            <span className="font-semibold text-white">Uncookd</span>. All
             rights reserved.
           </p>
 

@@ -14,14 +14,14 @@ export default function Header() {
   ];
 
   return (
-    <header className="w-full bg-gradient-to-r from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border-b border-white/10 shadow-lg">
+    <header className="w-full bg-black border-b border-gray-900 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-6 sm:px-8">
         <nav className="flex items-center justify-between h-16">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">U</span>
+            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
+              <span className="text-black font-bold text-sm">U</span>
             </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+            <span className="text-xl font-bold text-white">
               Uncookd
             </span>
           </div>
@@ -35,10 +35,10 @@ export default function Header() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all duration-200 ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
                     isActive
-                      ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white border border-blue-500/30"
-                      : "text-gray-400 hover:text-white hover:bg-white/5"
+                      ? "bg-white text-black border border-gray-800"
+                      : "text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800"
                   }`}
                 >
                   <Icon className="h-4 w-4" />

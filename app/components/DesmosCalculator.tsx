@@ -68,27 +68,25 @@ export default function DesmosCalculator({ isOpen, onClose }: DesmosCalculatorPr
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl shadow-2xl w-full max-w-6xl mx-8 border border-white/10 overflow-hidden">
-        <div className="p-4 border-b border-white/10 bg-gradient-to-r from-gray-900/50 to-gray-800/50 flex items-center justify-between">
-          <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Desmos Graphing Calculator
-          </h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <div 
-          ref={containerRef} 
-          className="w-full h-[600px] bg-white"
-          style={{ minHeight: '600px' }}
-        />
+    <div className="relative z-5 w-full max-w-6xl mx-8 bg-black rounded-xl shadow-2xl border border-gray-800 overflow-hidden">
+      <div className="p-4 border-b border-gray-800 bg-black flex items-center justify-between">
+        <h2 className="text-xl font-bold text-white">
+          Desmos Graphing Calculator
+        </h2>
+        <button
+          onClick={onClose}
+          className="rounded-lg p-2 text-gray-400 hover:text-white hover:bg-black border border-transparent hover:border-gray-800 transition-colors"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
+      <div 
+        ref={containerRef} 
+        className="w-full h-[600px] bg-white"
+        style={{ minHeight: '600px' }}
+      />
     </div>
   );
 }

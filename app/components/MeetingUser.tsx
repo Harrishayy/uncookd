@@ -21,10 +21,10 @@ export default function MeetingUser({
   isCurrentUser = false
 }: MeetingUserProps) {
   return (
-    <div className="group relative w-64 h-48 rounded-2xl bg-gradient-to-br from-gray-800 via-gray-800 to-gray-900 border border-white/10 hover:border-blue-500/50 shadow-xl hover:shadow-2xl hover:shadow-blue-500/20 transition-all duration-300 overflow-hidden">
+    <div className="group relative w-64 h-48 rounded-xl bg-black border border-gray-800 hover:border-white shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden">
       {/* Animated background gradient */}
       {isSpeaking && (
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 via-purple-500/20 to-pink-500/20 animate-pulse" />
+        <div className="absolute inset-0 bg-white/5 animate-pulse" />
       )}
       
       {/* Content */}
@@ -32,7 +32,7 @@ export default function MeetingUser({
         {/* Avatar */}
         <div className="relative mb-4">
           {avatar_url ? (
-            <div className="relative w-20 h-20 rounded-full overflow-hidden ring-4 ring-white/20 group-hover:ring-blue-400/50 transition-all">
+            <div className="relative w-20 h-20 rounded-full overflow-hidden ring-4 ring-gray-800 group-hover:ring-white transition-all">
               <Image
                 src={avatar_url}
                 alt={name}
@@ -42,8 +42,8 @@ export default function MeetingUser({
               />
             </div>
           ) : (
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center ring-4 ring-white/20 group-hover:ring-blue-400/50 transition-all">
-              <span className="text-2xl font-bold text-white">
+            <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center ring-4 ring-gray-800 group-hover:ring-white transition-all">
+              <span className="text-2xl font-bold text-black">
                 {name.charAt(0).toUpperCase()}
               </span>
             </div>
@@ -51,8 +51,8 @@ export default function MeetingUser({
           
           {/* Speaking indicator */}
           {isSpeaking && (
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-4 border-gray-800 flex items-center justify-center animate-pulse">
-              <div className="w-2 h-2 bg-white rounded-full" />
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-white rounded-full border-4 border-black flex items-center justify-center animate-pulse">
+              <div className="w-2 h-2 bg-black rounded-full" />
             </div>
           )}
         </div>
@@ -66,13 +66,13 @@ export default function MeetingUser({
         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {isMuted && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 border border-red-500/30">
-                <MicrophoneIcon className="h-3 w-3 text-red-400" />
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-black border border-gray-700">
+                <MicrophoneIcon className="h-3 w-3 text-gray-400" />
               </div>
             )}
             {isSpeaking && !isMuted && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/20 border border-green-500/30">
-                <SpeakerWaveIcon className="h-3 w-3 text-green-400" />
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/10 border border-white/20">
+                <SpeakerWaveIcon className="h-3 w-3 text-white" />
               </div>
             )}
           </div>
@@ -84,17 +84,14 @@ export default function MeetingUser({
                 e.stopPropagation();
                 onRemove();
               }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 hover:border-red-500/50"
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-black hover:bg-gray-900 border border-gray-800 hover:border-gray-700"
               title="Remove user"
             >
-              <XMarkIcon className="h-4 w-4 text-red-400" />
+              <XMarkIcon className="h-4 w-4 text-white" />
             </button>
           )}
         </div>
       </div>
-
-      {/* Glow effect on hover */}
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/0 via-purple-500/0 to-pink-500/0 group-hover:from-blue-500/10 group-hover:via-purple-500/10 group-hover:to-pink-500/10 transition-all duration-300 pointer-events-none" />
     </div>
   );
 }
