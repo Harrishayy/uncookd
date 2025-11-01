@@ -18,6 +18,46 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## CrewAI Backend Setup
+
+This project includes a Python backend for CrewAI multi-agent operations. To set it up:
+
+1. **Navigate to the backend directory:**
+```bash
+cd crewai_backend
+```
+
+2. **Create a virtual environment:**
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. **Install dependencies:**
+```bash
+pip install -r requirements.txt
+```
+
+4. **Run the backend server:**
+```bash
+python main.py
+# Or with uvicorn directly:
+uvicorn main:app --reload --port 8000
+```
+
+The backend will run on `http://localhost:8000`
+
+### Connecting Frontend and Backend
+
+The Next.js frontend communicates with the Python backend through:
+- **Next.js API Routes:** `app/api/crewai/`
+- **TypeScript Client:** `lib/crewai-client.ts`
+- **Example Component:** `app/components/CrewAIExample.tsx`
+
+The backend is configured with CORS to allow connections from `http://localhost:3000` (Next.js default port).
+
+For detailed backend documentation, see `crewai_backend/README.md`.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
