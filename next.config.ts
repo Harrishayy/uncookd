@@ -10,6 +10,16 @@ const nextConfig: NextConfig = {
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx'],
   },
   
+  // Image configuration
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+      },
+    ],
+  },
+  
   // Ensure API routes use Node.js runtime and exclude client-side packages
   experimental: {
     serverComponentsExternalPackages: ['tldraw', '@tldraw/editor', '@tldraw/tlschema', '@tldraw/state-react'],

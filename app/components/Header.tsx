@@ -1,15 +1,54 @@
-// import logo from "../logo.svg";
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { HomeIcon, InformationCircleIcon, VideoCameraIcon } from "@heroicons/react/24/outline";
 
 export default function Header() {
-    return (
-        <header className="w-full bg-[#181a1b] shadow-md py-4 px-8 flex items-center justify-between">
-            {/* <img src={logo} className="App-logo" alt="logo" /> */}
-            <nav className="flex gap-6">
-                <Link href="/" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">Home</Link>
-                <Link href="/about" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">About</Link>
-                <Link href="/meeting" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-200">Meeting</Link>
-            </nav>
-        </header>
-    );
+  const pathname = usePathname();
+  
+  const navItems = [
+    { href: "/", label: "Home", icon: HomeIcon },
+    { href: "/about", label: "About", icon: InformationCircleIcon },
+    { href: "/meeting", label: "Meeting", icon: VideoCameraIcon },
+  ];
+
+  return (
+    <header className="w-full bg-gradient-to-r from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border-b border-white/10 shadow-lg">
+      <div className="max-w-7xl mx-auto px-6 sm:px-8">
+        <nav className="flex items-center justify-between h-16">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+              <span className="text-white font-bold text-sm">U</span>
+            </div>
+            <span className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+              Uncookd
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href;
+              
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all duration-200 ${
+                    isActive
+                      ? "bg-gradient-to-r from-blue-500/20 to-purple-500/20 text-white border border-blue-500/30"
+                      : "text-gray-400 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
+    </header>
+  );
 }

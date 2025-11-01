@@ -11,6 +11,8 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.40",
     "@ai-sdk/google": "^2.0.26",
+    "@headlessui/react": "^2.2.9",
+    "@heroicons/react": "^2.2.0",
     "@tldraw/tldraw": "^4.1.2",
     "ai": "^5.0.86",
     "next": "16.0.1",

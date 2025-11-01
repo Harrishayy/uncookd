@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import TldrawBoardEmbedded from "./components/TldrawBoardEmbedded";
+import TldrawBoardEmbedded from "../components/TldrawBoardEmbedded";
 import { AgentInput } from '@/shared/types/AgentInput'
 
 export default function Page() {
