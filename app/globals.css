@@ -10,6 +10,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-inter: var(--font-inter);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,11 +20,151 @@
   }
 }
 
+* {
+	box-sizing: border-box;
+	overscroll-behavior: none;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
 }
+
+/* Tldraw Embedded Board */
+.tldraw-board-embedded {
+	width: 100%;
+	height: 100%;
+	position: relative;
+	background: white;
+}
+
+.tldraw-board-embedded .tl-container {
+	width: 100%;
+	height: 100%;
+}
+
+/* Legacy Tldraw Agent Container (full screen) - kept for backward compatibility */
+.tldraw-agent-container {
+	position: fixed;
+	inset: 0;
+	display: grid;
+	grid-template-columns: 1fr 350px;
+}
+
+@media (max-width: 768px) {
+	.tldraw-agent-container {
+		grid-template-columns: 1fr;
+		grid-template-rows: 1fr auto;
+	}
+}
+
+.tldraw-canvas {
+	width: 100%;
+	height: 100%;
+}
+
+/* Chat Panel */
+.chat-panel.tl-theme__light {
+	--tl-color-text-2: hsl(0, 0%, 55%);
+	--tl-color-primary-hover: hsl(214, 84%, 58%);
+}
+
+.chat-panel.tl-theme__dark {
+	--tl-color-text-2: hsl(0, 0%, 55%);
+	--tl-color-primary-hover: hsl(214, 84%, 50%);
+}
+
+.chat-panel {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+	font-size: 14px;
+	background-color: var(--tl-color-panel);
+	border-left: 1px solid var(--tl-color-low);
+	color: var(--tl-color-text-1);
+	font-family: var(--font-inter), sans-serif;
+	font-weight: 400;
+	font-size: 12px;
+	line-height: 1.5;
+	position: relative;
+}
+
+@media (max-width: 768px) {
+	.chat-panel {
+		height: 50vh;
+		width: 100vw;
+	}
+}
+
+.chat-panel * {
+	user-select: text;
+}
+
+.chat-panel button {
+	user-select: none;
+}
+
+/* Chat Input Styles */
+.chat-input-container {
+	display: flex;
+	flex-direction: column;
+	position: relative;
+}
+
+.chat-input {
+	padding: 0px 8px 8px 8px;
+	flex-shrink: 0;
+	position: sticky;
+	bottom: 0;
+	border-radius: 12px;
+	margin: 0px 8px 8px 8px;
+	padding: 0px;
+	background-color: var(--tl-color-panel);
+	z-index: 999999;
+}
+
+.chat-input form {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px;
+	border-radius: 12px;
+	color: var(--tl-color-text-2);
+	background-color: var(--tl-color-muted-1);
+	box-shadow: var(--tl-shadow-1);
+	font-size: 11px;
+}
+
+.chat-input textarea {
+	flex: 1;
+	padding: 8px 0px;
+	margin-bottom: 4px;
+	border: none;
+	background-color: transparent;
+	color: var(--tl-color-text);
+	font-family: sans-serif;
+	border-radius: 4px;
+	font-size: 12px;
+	outline: none;
+	width: 100%;
+	resize: none;
+}
+
+.chat-input textarea::placeholder {
+	color: var(--tl-color-text-3);
+}
+
+.chat-history {
+	padding: 0px 16px 32px 16px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	height: 100%;
+}
+
+/* Additional chat panel and agent styles */
 
 /* Dot wave animation used for speaking indicator */
 .dot-wave {
