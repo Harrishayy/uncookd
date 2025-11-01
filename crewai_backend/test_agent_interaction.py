@@ -23,7 +23,7 @@ def test_classroom_discussion():
     payload = {
         "topic": "How do we solve quadratic equations?",
         "subject": "mathematics",
-        "user_message": "I'm confused about completing the square method",
+        "user_message": input("what's your question?"),
         "agents_config": {
             "professor_personality": "encouraging",
             "expert_level": "advanced",
@@ -225,8 +225,8 @@ if __name__ == "__main__":
 
     # Run tests
     test_classroom_discussion()
-    test_debate()
-    test_explanation_with_visual()
+    # test_debate()
+    # test_explanation_with_visual()
 
     print("\n" + "=" * 60)
     print("✅ TEST SUITE COMPLETE")

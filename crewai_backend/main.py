@@ -90,6 +90,31 @@ class DebateResponse(BaseModel):
     execution_time: Optional[float] = None
 
 
+# Study Help Request/Response models
+class StudyHelpRequest(BaseModel):
+    """
+    Request model for study help endpoint.
+    This is where user input is RECEIVED - when frontend sends a POST request.
+    """
+    user_question: str  # The user's study question or problem
+    subject: str = "general"  # Subject area (e.g., "mathematics", "physics")
+    conversation_history: Optional[List[Dict[str, str]]] = None  # Previous messages for context
+    help_type: str = "explanation"  # "explanation", "discussion", or "debate"
+
+
+class StudyHelpResponse(BaseModel):
+    """
+    Response model for study help endpoint.
+    This is what gets sent back to the frontend.
+    """
+    success: bool
+    answer: Optional[str] = None  # Main answer from expert
+    agent_responses: Optional[List[Dict[str, str]]] = None  # Multiple agent responses
+    visual_suggestions: Optional[Dict[str, Any]] = None  # Whiteboard content suggestions
+    error: Optional[str] = None
+    execution_time: Optional[float] = None
+
+
 # Health check endpoint
 @app.get("/")
 async def root():
@@ -484,6 +509,231 @@ async def explain_concept(request: ClassroomDiscussionRequest):
         import traceback
 
         return ClassroomDiscussionResponse(
+            success=False,
+            error=f"{str(e)}\n{traceback.format_exc()}",
+            execution_time=None,
+        )
+
+
+# ============================================================================
+# STUDY HELP ENDPOINT - Main endpoint for user study questions
+# ============================================================================
+
+@app.post("/api/study/help", response_model=StudyHelpResponse)
+async def study_help(request: StudyHelpRequest):
+    """
+    Main endpoint for study help requests.
+    
+    WHERE USER INPUT IS RECEIVED:
+    ------------------------------
+    User input comes in via the `request` parameter (StudyHelpRequest object).
+    FastAPI automatically parses the JSON request body into this model.
+    
+    The frontend sends a POST request like:
+    POST /api/study/help
+    {
+        "user_question": "How do I solve quadratic equations?",
+        "subject": "mathematics",
+        "help_type": "explanation"
+    }
+    
+    WHERE USER INPUT IS HANDLED:
+    ------------------------------
+    The user's question is handled in this function (lines below).
+    - request.user_question contains the user's input
+    - We create appropriate agents based on the subject
+    - We create tasks that use the user's question
+    - Agents process the question and generate responses
+    """
+    try:
+        import time
+        
+        start_time = time.time()
+        
+        # ========================================================================
+        # STEP 1: EXTRACT USER INPUT
+        # ========================================================================
+        # This is where we read what the user sent us
+        user_question = request.user_question
+        subject = request.subject
+        help_type = request.help_type
+        conversation_history = request.conversation_history or []
+        
+        print(f"[STUDY HELP] User asked: {user_question}")
+        print(f"[STUDY HELP] Subject: {subject}, Help type: {help_type}")
+        
+        # ========================================================================
+        # STEP 2: BUILD CONTEXT FROM USER INPUT
+        # ========================================================================
+        # Create context object that includes user's question and history
+        context = {
+            "user_question": user_question,
+            "conversation_history": conversation_history,
+            "subject": subject,
+        }
+        
+        # ========================================================================
+        # STEP 3: CREATE APPROPRIATE CREW BASED ON HELP TYPE
+        # ========================================================================
+        # Handle different types of help requests
+        if help_type == "explanation":
+            # For explanations, use expert + visual assistant
+            crew = create_classroom_crew(
+                subject=subject,
+                include_visual_assistant=True,
+            )
+            
+            # Find expert and visual agents
+            expert_agent = next(
+                (a for a in crew.agents if "Expert" in a.role),
+                crew.agents[0],
+            )
+            visual_agent = next(
+                (a for a in crew.agents if "Visual" in a.role), None
+            )
+            
+            # Create tasks that address the user's question
+            tasks = [
+                create_explanation_task(
+                    concept=user_question,  # User's question becomes the concept to explain
+                    agent=expert_agent,
+                    audience_level="intermediate",
+                    include_visuals=True,
+                )
+            ]
+            
+            if visual_agent:
+                from agents.example_agents import create_whiteboard_content_task
+                tasks.append(
+                    create_whiteboard_content_task(
+                        topic=user_question,
+                        agent=visual_agent,
+                        content_type="graph",
+                    )
+                )
+                
+        elif help_type == "discussion":
+            # For discussions, multiple agents participate
+            crew = create_classroom_crew(
+                subject=subject,
+                include_visual_assistant=True,
+            )
+            
+            # Get different agents
+            professor_agent = next(
+                (a for a in crew.agents if "Professor" in a.role),
+                crew.agents[0],
+            )
+            expert_agent = next(
+                (a for a in crew.agents if "Expert" in a.role),
+                crew.agents[1] if len(crew.agents) > 1 else crew.agents[0],
+            )
+            devil_advocate_agent = next(
+                (a for a in crew.agents if "Devil" in a.role or "Critical" in a.role),
+                crew.agents[2] if len(crew.agents) > 2 else crew.agents[0],
+            )
+            
+            # Create discussion tasks based on user's question
+            tasks = [
+                create_discussion_task(
+                    topic=user_question,  # User's question drives the discussion
+                    agent=professor_agent,
+                    context=context,
+                    whiteboard_aware=True,
+                ),
+                create_discussion_task(
+                    topic=user_question,
+                    agent=expert_agent,
+                    context=context,
+                    whiteboard_aware=True,
+                ),
+                create_discussion_task(
+                    topic=user_question,
+                    agent=devil_advocate_agent,
+                    context=context,
+                    whiteboard_aware=True,
+                ),
+            ]
+            
+        else:  # Default to explanation
+            crew = create_classroom_crew(
+                subject=subject,
+                include_visual_assistant=True,
+            )
+            expert_agent = next(
+                (a for a in crew.agents if "Expert" in a.role),
+                crew.agents[0],
+            )
+            tasks = [
+                create_explanation_task(
+                    concept=user_question,
+                    agent=expert_agent,
+                    audience_level="intermediate",
+                    include_visuals=True,
+                )
+            ]
+        
+        # ========================================================================
+        # STEP 4: EXECUTE AGENTS WITH USER'S QUESTION
+        # ========================================================================
+        # Update crew with tasks that address user's question
+        crew.tasks = tasks
+        
+        # Execute - this is where agents actually process the user's input
+        result = crew.kickoff()
+        
+        execution_time = time.time() - start_time
+        
+        # ========================================================================
+        # STEP 5: PARSE AGENT RESPONSES AND RETURN TO USER
+        # ========================================================================
+        # Format the responses for the frontend
+        agent_responses = []
+        main_answer = None
+        visual_suggestions = None
+        
+        if isinstance(result, dict):
+            for task_desc, output in result.items():
+                # Extract agent name
+                agent_name = "Expert"
+                for task in tasks:
+                    if task.description == task_desc or task_desc in task.description:
+                        agent_name = task.agent.role
+                        break
+                
+                response_text = str(output)
+                agent_responses.append({
+                    "agent": agent_name,
+                    "message": response_text,
+                })
+                
+                # First expert response becomes the main answer
+                if main_answer is None and "Expert" in agent_name:
+                    main_answer = response_text
+                
+                # Extract visual suggestions
+                if visual_suggestions is None and ("visual" in task_desc.lower() or "whiteboard" in task_desc.lower()):
+                    visual_suggestions = {
+                        "description": response_text,
+                        "type": "graph",  # Could be extracted from response
+                    }
+        
+        # If no main answer, use first response
+        if main_answer is None and agent_responses:
+            main_answer = agent_responses[0]["message"]
+        
+        return StudyHelpResponse(
+            success=True,
+            answer=main_answer,
+            agent_responses=agent_responses,
+            visual_suggestions=visual_suggestions,
+            execution_time=execution_time,
+        )
+        
+    except Exception as e:
+        import traceback
+        
+        return StudyHelpResponse(
             success=False,
             error=f"{str(e)}\n{traceback.format_exc()}",
             execution_time=None,
