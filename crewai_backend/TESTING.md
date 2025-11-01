@@ -4,22 +4,20 @@ This guide helps you test whether your agents can respond to users and interact 
 
 ## Quick Start
 
-### 1. Start the Backend Server
+### 1. Start the Backend Server main test
 
 ```bash
 cd crewai_backend
-python main.py
+source .venv/bin/activate
+python -m pytest -v test_main.py  # run test
 ```
 
-The server will run on `http://localhost:8000`
-
-### 2. Run the Test Script
-
-In a **new terminal**:
+### 2. Start the TTS main test:
 
 ```bash
 cd crewai_backend
-python test_agent_interaction.py
+source .venv/bin/activate
+uv run python -u test_tts_playback.py # must be run with uv
 ```
 
 ## What Gets Tested
@@ -40,7 +38,8 @@ The test script verifies:
 
 ### In Your Current Implementation
 
-- **Discussion Endpoint** (`/api/classroom/discuss`): 
+- **Discussion Endpoint** (`/api/classroom/discuss`):
+
   - Multiple agents get tasks for the same topic
   - They see each other's outputs through CrewAI's task system
   - This demonstrates agent-to-agent interaction
@@ -53,6 +52,7 @@ The test script verifies:
 ### Current Limitations
 
 ⚠️ **Important**: The current implementation uses CrewAI's built-in task system, which means:
+
 - Agents complete their tasks sequentially
 - Interaction happens through task outputs, not real-time chat
 - For **true conversational** interaction, you'll need:
@@ -99,12 +99,14 @@ curl -X POST "http://localhost:8000/api/classroom/explain" \
 ## What to Look For
 
 ✅ **Success Indicators**:
+
 - Multiple agents respond in discussion
 - Different agents take different positions in debate
 - Agents reference each other's points (shows they see previous outputs)
 - Visual assistant suggests graph/whiteboard content
 
 ❌ **Warning Signs**:
+
 - Only one agent responds
 - Agents don't reference each other
 - Same response from all agents
@@ -113,16 +115,21 @@ curl -X POST "http://localhost:8000/api/classroom/explain" \
 ## Troubleshooting
 
 ### Server Not Running
+
 ```
 ❌ ERROR: Could not connect to server
 ```
+
 **Solution**: Start the server first: `python main.py`
 
 ### API Key Issues
+
 ```
 ❌ Error: API key not found
 ```
+
 **Solution**: Create `.env` file with your OpenAI/Anthropic API key:
+
 ```
 OPENAI_API_KEY=your-key-here
 # or
@@ -130,9 +137,11 @@ ANTHROPIC_API_KEY=your-key-here
 ```
 
 ### Import Errors
+
 ```
 ❌ Error: No module named 'agents'
 ```
+
 **Solution**: Make sure you're in the `crewai_backend` directory and the `agents` folder exists
 
 ## Next Steps After Testing
@@ -145,4 +154,3 @@ Once you confirm agents can interact:
 4. **Add Streaming** for token-by-token responses
 
 See `agents/example_agents.py` for the implementation roadmap.
-

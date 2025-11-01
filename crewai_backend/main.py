@@ -3,11 +3,14 @@ CrewAI Backend Server
 FastAPI server to handle CrewAI multi-agent operations
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uvicorn
+import json
+from crewai import Agent, Task, Crew
+from utils.tts import text_to_speech_stream
 from agents.example_agents import (
     create_classroom_crew,
     create_debate_crew,
@@ -97,11 +100,16 @@ class StudyHelpRequest(BaseModel):
     Request model for study help endpoint.
     This is where user input is RECEIVED - when frontend sends a POST request.
     """
+
     user_question: str  # The user's study question or problem
     subject: str = "general"  # Subject area (e.g., "mathematics", "physics")
-    conversation_history: Optional[List[Dict[str, str]]] = None  # Previous messages for context
+    conversation_history: Optional[List[Dict[str, str]]] = (
+        None  # Previous messages for context
+    )
     help_type: str = "explanation"  # "explanation", "discussion", or "debate"
-    preferred_agent_role: Optional[str] = None  # Optional: route question to a specific agent role
+    preferred_agent_role: Optional[str] = (
+        None  # Optional: route question to a specific agent role
+    )
 
 
 class StudyHelpResponse(BaseModel):
@@ -109,10 +117,13 @@ class StudyHelpResponse(BaseModel):
     Response model for study help endpoint.
     This is what gets sent back to the frontend.
     """
+
     success: bool
     answer: Optional[str] = None  # Main answer from expert
     agent_responses: Optional[List[Dict[str, str]]] = None  # Multiple agent responses
-    visual_suggestions: Optional[Dict[str, Any]] = None  # Whiteboard content suggestions
+    visual_suggestions: Optional[Dict[str, Any]] = (
+        None  # Whiteboard content suggestions
+    )
     error: Optional[str] = None
     execution_time: Optional[float] = None
 
@@ -519,16 +530,17 @@ async def explain_concept(request: ClassroomDiscussionRequest):
 # STUDY HELP ENDPOINT - Main endpoint for user study questions
 # ============================================================================
 
+
 @app.post("/api/study/help", response_model=StudyHelpResponse)
 async def study_help(request: StudyHelpRequest):
     """
     Main endpoint for study help requests.
-    
+
     WHERE USER INPUT IS RECEIVED:
     ------------------------------
     User input comes in via the `request` parameter (StudyHelpRequest object).
     FastAPI automatically parses the JSON request body into this model.
-    
+
     The frontend sends a POST request like:
     POST /api/study/help
     {
@@ -536,7 +548,7 @@ async def study_help(request: StudyHelpRequest):
         "subject": "mathematics",
         "help_type": "explanation"
     }
-    
+
     WHERE USER INPUT IS HANDLED:
     ------------------------------
     The user's question is handled in this function (lines below).
@@ -547,9 +559,9 @@ async def study_help(request: StudyHelpRequest):
     """
     try:
         import time
-        
+
         start_time = time.time()
-        
+
         # ========================================================================
         # STEP 1: EXTRACT USER INPUT
         # ========================================================================
@@ -559,10 +571,10 @@ async def study_help(request: StudyHelpRequest):
         help_type = request.help_type
         conversation_history = request.conversation_history or []
         preferred_agent_role = request.preferred_agent_role
-        
+
         print(f"[STUDY HELP] User asked: {user_question}")
         print(f"[STUDY HELP] Subject: {subject}, Help type: {help_type}")
-        
+
         # ========================================================================
         # STEP 2: BUILD CONTEXT FROM USER INPUT
         # ========================================================================
@@ -572,7 +584,7 @@ async def study_help(request: StudyHelpRequest):
             "conversation_history": conversation_history,
             "subject": subject,
         }
-        
+
         # ========================================================================
         # STEP 3: CREATE APPROPRIATE CREW BASED ON HELP TYPE
         # ========================================================================
@@ -607,7 +619,7 @@ async def study_help(request: StudyHelpRequest):
                         subject=subject,
                     )
                 ]
-                
+
         elif help_type == "discussion":
             # Use limited flow: primary + at most one follow-up, no summary.
             crew = create_classroom_crew(subject=subject)
@@ -620,7 +632,7 @@ async def study_help(request: StudyHelpRequest):
                 followups=3,
                 include_summary=False,
             )
-            
+
         else:  # Default to explanation
             crew = create_classroom_crew(
                 subject=subject,
@@ -639,18 +651,18 @@ async def study_help(request: StudyHelpRequest):
                     subject=subject,
                 )
             ]
-        
+
         # ========================================================================
         # STEP 4: EXECUTE AGENTS WITH USER'S QUESTION
         # ========================================================================
         # Update crew with tasks that address user's question
         crew.tasks = tasks
-        
+
         # Execute - this is where agents actually process the user's input
         result = crew.kickoff()
-        
+
         execution_time = time.time() - start_time
-        
+
         # ========================================================================
         # STEP 5: PARSE AGENT RESPONSES AND RETURN TO USER
         # ========================================================================
@@ -658,7 +670,7 @@ async def study_help(request: StudyHelpRequest):
         agent_responses = []
         main_answer = None
         visual_suggestions = None
-        
+
         if isinstance(result, dict):
             for task_desc, output in result.items():
                 # Extract agent name
@@ -667,28 +679,32 @@ async def study_help(request: StudyHelpRequest):
                     if task.description == task_desc or task_desc in task.description:
                         agent_name = task.agent.role
                         break
-                
+
                 response_text = str(output)
-                agent_responses.append({
-                    "agent": agent_name,
-                    "message": response_text,
-                })
-                
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+
                 # First expert response becomes the main answer
                 if main_answer is None and "Expert" in agent_name:
                     main_answer = response_text
-                
+
                 # Extract visual suggestions
-                if visual_suggestions is None and ("visual" in task_desc.lower() or "whiteboard" in task_desc.lower()):
+                if visual_suggestions is None and (
+                    "visual" in task_desc.lower() or "whiteboard" in task_desc.lower()
+                ):
                     visual_suggestions = {
                         "description": response_text,
                         "type": "graph",  # Could be extracted from response
                     }
-        
+
         # If no main answer, use first response
         if main_answer is None and agent_responses:
             main_answer = agent_responses[0]["message"]
-        
+
         return StudyHelpResponse(
             success=True,
             answer=main_answer,
@@ -696,15 +712,94 @@ async def study_help(request: StudyHelpRequest):
             visual_suggestions=visual_suggestions,
             execution_time=execution_time,
         )
-        
+
     except Exception as e:
         import traceback
-        
+
         return StudyHelpResponse(
             success=False,
             error=f"{str(e)}\n{traceback.format_exc()}",
             execution_time=None,
         )
+
+
+# ============================================================================
+# WEBSOCKET ENDPOINTS - Audio streaming
+# ============================================================================
+
+from fastapi import WebSocket
+import json
+
+
+@app.websocket("/ws/audio")
+async def websocket_audio_stream(websocket: WebSocket):
+    """
+    WebSocket endpoint for streaming audio responses
+    """
+    try:
+        await websocket.accept()
+        # Send connected message
+        await websocket.send_json({"type": "connected"})
+
+        # Initialize variables
+        agent = None
+        voice_id = None
+
+        while True:
+            message = await websocket.receive_text()
+            data = json.loads(message)
+            msg_type = data.get("type")
+
+            if msg_type == "config":
+                # Configure agent and voice
+                agent_config = data.get("agent_config", {})
+                agent = Agent(
+                    role=agent_config.get("role", "Assistant"),
+                    goal="Complete tasks and provide audio responses",
+                    backstory="You are a helpful AI assistant who responds via audio.",
+                    verbose=True,
+                    allow_delegation=False,
+                )
+                voice_id = agent_config.get("voice_id")
+                await websocket.send_json({"type": "config_received"})
+
+            elif msg_type == "text":
+                if not agent:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "error": "Agent not configured. Send config message first.",
+                        }
+                    )
+                    continue
+
+                text = data.get("text", "")
+                await websocket.send_json({"type": "text_received"})
+
+                # Generate agent's response
+                task = Task(
+                    description=text,
+                    agent=agent,
+                    expected_output="A helpful and concise response",
+                )
+                response = agent.execute_task(task)
+
+                # Send response text first
+                await websocket.send_json({"type": "response_text", "text": response})
+
+                # Then stream audio
+                await websocket.send_json({"type": "audio_start"})
+                for chunk in text_to_speech_stream(response, voice_id=voice_id):
+                    await websocket.send_bytes(chunk)
+                await websocket.send_json({"type": "audio_end"})
+
+    except Exception as e:
+        # If connection is still open, send error
+        try:
+            await websocket.send_json({"type": "error", "error": str(e)})
+        except Exception:
+            # Connection is already closed
+            pass
 
 
 if __name__ == "__main__":
