@@ -5,6 +5,7 @@ Python backend service for CrewAI multi-agent operations, connected to Next.js f
 ## Setup
 
 1. **Install Python dependencies:**
+
 ```bash
 cd crewai_backend
 python -m venv venv
@@ -13,12 +14,14 @@ pip install -r requirements.txt
 ```
 
 2. **Configure environment variables:**
+
 ```bash
 cp .env.example .env
 # Edit .env and add your API keys
 ```
 
 3. **Run the server:**
+
 ```bash
 python main.py
 # Or with uvicorn directly:
@@ -30,10 +33,12 @@ The server will run on `http://localhost:8000`
 ## API Endpoints
 
 ### Health Check
+
 - `GET /` - Root endpoint
 - `GET /health` - Health check
 
 ### Agent Operations
+
 - `POST /api/agent/execute` - Execute a task with a single agent
   - Request body:
     ```json
@@ -49,6 +54,7 @@ The server will run on `http://localhost:8000`
     ```
 
 ### Crew Operations
+
 - `POST /api/crew/execute` - Execute tasks with multiple agents
   - Request body:
     ```json

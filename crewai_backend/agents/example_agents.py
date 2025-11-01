@@ -12,10 +12,13 @@ from typing import List, Optional, Dict, Any
 # AGENT CREATION FUNCTIONS
 # ============================================================================
 
-def create_professor_agent(subject: str = "general studies", personality: str = "encouraging"):
+
+def create_professor_agent(
+    subject: str = "general studies", personality: str = "encouraging"
+):
     """
     Create a Professor/Moderator agent to guide classroom discussions
-    
+
     Args:
         subject: The subject area (e.g., "mathematics", "physics", "history")
         personality: Agent personality ("encouraging", "rigorous", "playful")
@@ -23,14 +26,14 @@ def create_professor_agent(subject: str = "general studies", personality: str = 
     personality_traits = {
         "encouraging": "You are warm, supportive, and encourage participation from all students.",
         "rigorous": "You maintain high academic standards and push for deep understanding.",
-        "playful": "You use humor and creative examples to make learning engaging."
+        "playful": "You use humor and creative examples to make learning engaging.",
     }
-    
+
     return Agent(
         role=f"Professor of {subject.title()}",
         goal=f"Facilitate engaging discussions and debates about {subject}, ensuring all participants learn and contribute meaningfully",
         backstory=f"""You are an experienced educator with a passion for {subject}. 
-        {personality_traits.get(personality, personality_traits['encouraging'])}
+        {personality_traits.get(personality, personality_traits["encouraging"])}
         You guide classroom discussions, moderate debates, and help synthesize different viewpoints.
         You can recognize when visual aids (graphs, diagrams) would help understanding and suggest them for the whiteboard.""",
         verbose=True,
@@ -38,10 +41,12 @@ def create_professor_agent(subject: str = "general studies", personality: str = 
     )
 
 
-def create_subject_expert_agent(subject: str = "mathematics", expertise_level: str = "advanced"):
+def create_subject_expert_agent(
+    subject: str = "mathematics", expertise_level: str = "advanced"
+):
     """
     Create a Subject Expert agent that can explain concepts and provide insights
-    
+
     Args:
         subject: The subject of expertise (e.g., "mathematics", "physics", "literature")
         expertise_level: "beginner", "intermediate", or "advanced"
@@ -61,21 +66,21 @@ def create_subject_expert_agent(subject: str = "mathematics", expertise_level: s
 def create_devils_advocate_agent(challenge_level: str = "moderate"):
     """
     Create a Devil's Advocate agent to challenge ideas and promote critical thinking
-    
+
     Args:
         challenge_level: "mild", "moderate", or "aggressive"
     """
     challenge_styles = {
         "mild": "You gently question assumptions and suggest alternative perspectives.",
         "moderate": "You actively challenge ideas with counterarguments and ask probing questions.",
-        "aggressive": "You strongly debate points and push hard for evidence and logical consistency."
+        "aggressive": "You strongly debate points and push hard for evidence and logical consistency.",
     }
-    
+
     return Agent(
         role="Critical Thinker & Devil's Advocate",
         goal="Challenge ideas, ask probing questions, and ensure rigorous thinking in discussions",
         backstory=f"""You are a sharp intellectual who loves to test ideas through debate.
-        {challenge_styles.get(challenge_level, challenge_styles['moderate'])}
+        {challenge_styles.get(challenge_level, challenge_styles["moderate"])}
         You help ensure that conclusions are well-reasoned and that students consider multiple perspectives.
         You're not mean-spirited—you want to strengthen understanding through rigorous discussion.""",
         verbose=True,
@@ -86,7 +91,7 @@ def create_devils_advocate_agent(challenge_level: str = "moderate"):
 def create_peer_student_agent(background: str = "curious learner"):
     """
     Create a Peer Student agent that participates as another student
-    
+
     Args:
         background: Student background (e.g., "curious learner", "struggling student", "overachiever")
     """
@@ -125,15 +130,16 @@ def create_visual_learning_assistant_agent():
 # TASK CREATION FUNCTIONS
 # ============================================================================
 
+
 def create_discussion_task(
     topic: str,
     agent: Agent,
     context: Optional[Dict[str, Any]] = None,
-    whiteboard_aware: bool = True
+    whiteboard_aware: bool = True,
 ) -> Task:
     """
     Create a discussion task for an agent to participate in
-    
+
     Args:
         topic: The discussion topic
         agent: The agent assigned to this task
@@ -145,11 +151,11 @@ def create_discussion_task(
         whiteboard_instruction = """
         If relevant, suggest what could be visualized on the whiteboard to aid understanding.
         Reference any existing whiteboard content when making your points."""
-    
+
     context_str = ""
     if context:
         context_str = f"\nContext: {context}"
-    
+
     return Task(
         description=f"""Participate in a discussion about: {topic}
         
@@ -168,11 +174,11 @@ def create_debate_task(
     proposition: str,
     agent: Agent,
     position: str = "argue",
-    context: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None,
 ) -> Task:
     """
     Create a debate task where an agent argues for or against a proposition
-    
+
     Args:
         proposition: The statement being debated
         agent: The agent assigned to this task
@@ -184,15 +190,15 @@ def create_debate_task(
         "counter": "Present arguments against the proposition and challenge the opposing side.",
         "moderate": "Help structure the debate, summarize points, and ensure both sides are heard.",
     }
-    
+
     context_str = ""
     if context:
         context_str = f"\nContext: {context}"
-    
+
     return Task(
         description=f"""Participate in a debate about: {proposition}
         
-        {position_instructions.get(position, position_instructions['argue'])}
+        {position_instructions.get(position, position_instructions["argue"])}
         {context_str}
         
         Make your arguments clear, evidence-based, and conversational.
@@ -206,11 +212,11 @@ def create_explanation_task(
     concept: str,
     agent: Agent,
     audience_level: str = "intermediate",
-    include_visuals: bool = True
+    include_visuals: bool = True,
 ) -> Task:
     """
     Create a task for an agent to explain a concept
-    
+
     Args:
         concept: The concept to explain
         agent: The agent assigned to this task
@@ -222,7 +228,7 @@ def create_explanation_task(
         visual_instruction = """
         Describe what should be displayed on the whiteboard to help visualize this concept
         (e.g., graphs, diagrams, step-by-step solutions)."""
-    
+
     return Task(
         description=f"""Explain the concept: {concept}
         
@@ -236,13 +242,11 @@ def create_explanation_task(
 
 
 def create_whiteboard_content_task(
-    topic: str,
-    agent: Agent,
-    content_type: str = "graph"
+    topic: str, agent: Agent, content_type: str = "graph"
 ) -> Task:
     """
     Create a task for generating whiteboard content descriptions
-    
+
     Args:
         topic: The topic/concept to visualize
         agent: The agent (typically Visual Learning Assistant)
@@ -268,14 +272,15 @@ def create_whiteboard_content_task(
 # CREW CREATION FUNCTIONS
 # ============================================================================
 
+
 def create_classroom_crew(
     subject: str = "mathematics",
     agents_config: Optional[Dict[str, Any]] = None,
-    include_visual_assistant: bool = True
+    include_visual_assistant: bool = True,
 ) -> Crew:
     """
     Create a virtual classroom crew with multiple educational agents
-    
+
     Args:
         subject: The subject being studied
         agents_config: Optional configuration dict with keys:
@@ -286,112 +291,96 @@ def create_classroom_crew(
         include_visual_assistant: Whether to include the visual learning assistant
     """
     config = agents_config or {}
-    
+
     # Create agents
     professor = create_professor_agent(
-        subject=subject,
-        personality=config.get("professor_personality", "encouraging")
+        subject=subject, personality=config.get("professor_personality", "encouraging")
     )
-    
+
     expert = create_subject_expert_agent(
-        subject=subject,
-        expertise_level=config.get("expert_level", "advanced")
+        subject=subject, expertise_level=config.get("expert_level", "advanced")
     )
-    
+
     devils_advocate = create_devils_advocate_agent(
         challenge_level=config.get("challenge_level", "moderate")
     )
-    
+
     peer_student = create_peer_student_agent(
         background=config.get("student_background", "curious learner")
     )
-    
+
     agents = [professor, expert, devils_advocate, peer_student]
-    
+
     if include_visual_assistant:
         visual_assistant = create_visual_learning_assistant_agent()
         agents.append(visual_assistant)
-    
+
     # Create initial discussion tasks (these can be customized per session)
     tasks = [
         create_discussion_task(
             topic=f"Introduction to key concepts in {subject}",
             agent=professor,
-            whiteboard_aware=True
+            whiteboard_aware=True,
         ),
         create_explanation_task(
             concept=f"Fundamental principles of {subject}",
             agent=expert,
-            include_visuals=True
+            include_visuals=True,
         ),
     ]
-    
+
     crew = Crew(
         agents=agents,
         tasks=tasks,
         verbose=True,
         process="sequential",  # Sequential process for more conversational flow
     )
-    
+
     return crew
 
 
 def create_debate_crew(
-    topic: str,
-    subject: str = "general",
-    agents_config: Optional[Dict[str, Any]] = None
+    topic: str, subject: str = "general", agents_config: Optional[Dict[str, Any]] = None
 ) -> Crew:
     """
     Create a crew specifically for debate sessions
-    
+
     Args:
         topic: The debate topic/proposition
         subject: The subject area
         agents_config: Optional agent configuration
     """
     config = agents_config or {}
-    
+
     # Create agents
     professor = create_professor_agent(
-        subject=subject,
-        personality=config.get("professor_personality", "encouraging")
+        subject=subject, personality=config.get("professor_personality", "encouraging")
     )
-    
+
     expert = create_subject_expert_agent(
-        subject=subject,
-        expertise_level=config.get("expert_level", "advanced")
+        subject=subject, expertise_level=config.get("expert_level", "advanced")
     )
-    
+
     devils_advocate = create_devils_advocate_agent(
         challenge_level=config.get("challenge_level", "moderate")
     )
-    
+
     # Create debate tasks
     tasks = [
+        create_debate_task(proposition=topic, agent=professor, position="moderate"),
+        create_debate_task(proposition=topic, agent=expert, position="argue"),
         create_debate_task(
-            proposition=topic,
-            agent=professor,
-            position="moderate"
-        ),
-        create_debate_task(
-            proposition=topic,
-            agent=expert,
-            position="argue"
-        ),
-        create_debate_task(
-            proposition=topic,
-            agent=devils_advocate,
-            position="counter"
+            proposition=topic, agent=devils_advocate, position="counter"
         ),
     ]
-    
+
     crew = Crew(
         agents=[professor, expert, devils_advocate],
         tasks=tasks,
         verbose=True,
         process="sequential",
     )
-    
+
     return crew
 
 
@@ -407,20 +396,20 @@ if __name__ == "__main__":
             "professor_personality": "encouraging",
             "expert_level": "advanced",
             "challenge_level": "moderate",
-            "student_background": "curious learner"
-        }
+            "student_background": "curious learner",
+        },
     )
-    
+
     print("Math Classroom Crew Created!")
     print(f"Agents: {[agent.role for agent in math_classroom.agents]}")
     print(f"Tasks: {[task.description[:50] + '...' for task in math_classroom.tasks]}")
-    
+
     # Example: Create a debate session
     debate_crew = create_debate_crew(
         topic="Is calculus essential for understanding the natural world?",
-        subject="mathematics"
+        subject="mathematics",
     )
-    
+
     print("\nDebate Crew Created!")
     print(f"Debate Topic: Is calculus essential for understanding the natural world?")
 

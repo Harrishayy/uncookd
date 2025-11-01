@@ -21,7 +21,10 @@ app = FastAPI(title="CrewAI Backend API", version="1.0.0")
 # Configure CORS to allow Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Next.js default ports
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+    ],  # Next.js default ports
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,7 +70,9 @@ class ClassroomDiscussionRequest(BaseModel):
 
 class ClassroomDiscussionResponse(BaseModel):
     success: bool
-    responses: Optional[List[Dict[str, Any]]] = None  # [{agent: "...", message: "..."}, ...]
+    responses: Optional[List[Dict[str, Any]]] = (
+        None  # [{agent: "...", message: "..."}, ...]
+    )
     error: Optional[str] = None
     execution_time: Optional[float] = None
 
@@ -106,41 +111,45 @@ async def execute_agent_task(request: AgentRequest):
         # Import CrewAI components here to avoid issues if not installed
         from crewai import Agent, Task
         import time
-        
+
         start_time = time.time()
-        
+
         # Create agent (you can customize this based on your needs)
         agent = Agent(
-            role=request.agent_config.get("role", "Assistant") if request.agent_config else "Assistant",
-            goal=request.agent_config.get("goal", "Complete the given task") if request.agent_config else "Complete the given task",
-            backstory=request.agent_config.get("backstory", "You are a helpful assistant") if request.agent_config else "You are a helpful assistant",
+            role=request.agent_config.get("role", "Assistant")
+            if request.agent_config
+            else "Assistant",
+            goal=request.agent_config.get("goal", "Complete the given task")
+            if request.agent_config
+            else "Complete the given task",
+            backstory=request.agent_config.get(
+                "backstory", "You are a helpful assistant"
+            )
+            if request.agent_config
+            else "You are a helpful assistant",
             verbose=True,
-            allow_delegation=False
+            allow_delegation=False,
         )
-        
+
         # Create task
         task = Task(
             description=request.task,
             agent=agent,
-            expected_output="A detailed response to the task"
+            expected_output="A detailed response to the task",
         )
-        
+
         # Execute task
         result = agent.execute_task(task)
-        
+
         execution_time = time.time() - start_time
-        
+
         return AgentResponse(
             success=True,
             result=str(result) if result else "Task completed",
-            execution_time=execution_time
+            execution_time=execution_time,
         )
     except Exception as e:
-        return AgentResponse(
-            success=False,
-            error=str(e),
-            execution_time=None
-        )
+        return AgentResponse(success=False, error=str(e), execution_time=None)
 
 
 # Multi-agent crew endpoint
@@ -152,9 +161,9 @@ async def execute_crew(request: CrewRequest):
     try:
         from crewai import Crew, Agent, Task
         import time
-        
+
         start_time = time.time()
-        
+
         # Create agents (default configuration if not provided)
         agents = []
         if request.agents_config:
@@ -162,9 +171,11 @@ async def execute_crew(request: CrewRequest):
                 agent = Agent(
                     role=agent_config.get("role", "Assistant"),
                     goal=agent_config.get("goal", "Complete assigned tasks"),
-                    backstory=agent_config.get("backstory", "You are a helpful assistant"),
+                    backstory=agent_config.get(
+                        "backstory", "You are a helpful assistant"
+                    ),
                     verbose=True,
-                    allow_delegation=agent_config.get("allow_delegation", True)
+                    allow_delegation=agent_config.get("allow_delegation", True),
                 )
                 agents.append(agent)
         else:
@@ -174,31 +185,27 @@ async def execute_crew(request: CrewRequest):
                 goal="Complete assigned tasks",
                 backstory="You are a helpful assistant",
                 verbose=True,
-                allow_delegation=True
+                allow_delegation=True,
             )
             agents.append(agent)
-        
+
         # Create tasks
         tasks = []
         for i, task_description in enumerate(request.tasks):
             task = Task(
                 description=task_description,
                 agent=agents[i % len(agents)],  # Distribute tasks among agents
-                expected_output="A detailed response to the task"
+                expected_output="A detailed response to the task",
             )
             tasks.append(task)
-        
+
         # Create and run crew
-        crew = Crew(
-            agents=agents,
-            tasks=tasks,
-            verbose=True
-        )
-        
+        crew = Crew(agents=agents, tasks=tasks, verbose=True)
+
         result = crew.kickoff()
-        
+
         execution_time = time.time() - start_time
-        
+
         # Format results
         results = []
         if isinstance(result, dict):
@@ -207,23 +214,18 @@ async def execute_crew(request: CrewRequest):
             results = [{"result": str(r)} for r in result]
         else:
             results = [{"result": str(result)}]
-        
+
         return CrewResponse(
-            success=True,
-            results=results,
-            execution_time=execution_time
+            success=True, results=results, execution_time=execution_time
         )
     except Exception as e:
-        return CrewResponse(
-            success=False,
-            error=str(e),
-            execution_time=None
-        )
+        return CrewResponse(success=False, error=str(e), execution_time=None)
 
 
 # ============================================================================
 # CLASSROOM ENDPOINTS - Using the new classroom agents
 # ============================================================================
+
 
 @app.post("/api/classroom/discuss", response_model=ClassroomDiscussionResponse)
 async def classroom_discussion(request: ClassroomDiscussionRequest):
@@ -233,15 +235,16 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
     """
     try:
         import time
+
         start_time = time.time()
-        
+
         # Create classroom crew
         crew = create_classroom_crew(
             subject=request.subject,
             agents_config=request.agents_config,
-            include_visual_assistant=True
+            include_visual_assistant=True,
         )
-        
+
         # Build context from conversation history and user message
         context = {}
         if request.user_message:
@@ -250,35 +253,48 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
             context["conversation_history"] = request.conversation_history
         if request.whiteboard_state:
             context["whiteboard_state"] = request.whiteboard_state
-        
+
         # Find agents by role (more robust than assuming order)
-        professor_agent = next((a for a in crew.agents if "Professor" in a.role), crew.agents[0])
-        expert_agent = next((a for a in crew.agents if "Expert" in a.role), crew.agents[1] if len(crew.agents) > 1 else crew.agents[0])
-        devil_advocate_agent = next((a for a in crew.agents if "Devil" in a.role or "Critical" in a.role), crew.agents[2] if len(crew.agents) > 2 else crew.agents[0])
-        
+        professor_agent = next(
+            (a for a in crew.agents if "Professor" in a.role), crew.agents[0]
+        )
+        expert_agent = next(
+            (a for a in crew.agents if "Expert" in a.role),
+            crew.agents[1] if len(crew.agents) > 1 else crew.agents[0],
+        )
+        devil_advocate_agent = next(
+            (a for a in crew.agents if "Devil" in a.role or "Critical" in a.role),
+            crew.agents[2] if len(crew.agents) > 2 else crew.agents[0],
+        )
+
         # Create tasks for different agents to participate in the discussion
         # Agents will see each other's outputs and can respond to them
         tasks = [
             create_discussion_task(
-                topic=f"{request.topic}" + (f"\nUser said: {request.user_message}" if request.user_message else ""),
+                topic=f"{request.topic}"
+                + (
+                    f"\nUser said: {request.user_message}"
+                    if request.user_message
+                    else ""
+                ),
                 agent=professor_agent,
                 context=context,
-                whiteboard_aware=True
+                whiteboard_aware=True,
             ),
             create_discussion_task(
                 topic=request.topic,
                 agent=expert_agent,
                 context=context,
-                whiteboard_aware=True
+                whiteboard_aware=True,
             ),
             create_discussion_task(
                 topic=request.topic,
                 agent=devil_advocate_agent,
                 context=context,
-                whiteboard_aware=True
+                whiteboard_aware=True,
             ),
         ]
-        
+
         # Add peer student if exists
         peer_agent = next((a for a in crew.agents if "Peer Student" in a.role), None)
         if peer_agent:
@@ -287,18 +303,18 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
                     topic=request.topic,
                     agent=peer_agent,
                     context=context,
-                    whiteboard_aware=True
+                    whiteboard_aware=True,
                 )
             )
-        
+
         # Update crew with new tasks
         crew.tasks = tasks
-        
+
         # Execute - agents will interact with each other through CrewAI's task system
         result = crew.kickoff()
-        
+
         execution_time = time.time() - start_time
-        
+
         # Parse results - CrewAI returns results from each task
         responses = []
         if isinstance(result, dict):
@@ -309,30 +325,33 @@ async def classroom_discussion(request: ClassroomDiscussionRequest):
                     if task.description == task_desc or task_desc in task.description:
                         agent_name = task.agent.role
                         break
-                responses.append({
-                    "agent": agent_name,
-                    "message": str(output),
-                    "task": task_desc[:100]  # Truncate for display
-                })
-        elif hasattr(result, 'tasks_output'):
+                responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": str(output),
+                        "task": task_desc[:100],  # Truncate for display
+                    }
+                )
+        elif hasattr(result, "tasks_output"):
             # Handle CrewAI result object
             for i, task in enumerate(crew.tasks):
-                responses.append({
-                    "agent": task.agent.role,
-                    "message": "Response generated",  # CrewAI format may vary
-                })
-        
+                responses.append(
+                    {
+                        "agent": task.agent.role,
+                        "message": "Response generated",  # CrewAI format may vary
+                    }
+                )
+
         return ClassroomDiscussionResponse(
-            success=True,
-            responses=responses,
-            execution_time=execution_time
+            success=True, responses=responses, execution_time=execution_time
         )
     except Exception as e:
         import traceback
+
         return ClassroomDiscussionResponse(
             success=False,
             error=f"{str(e)}\n{traceback.format_exc()}",
-            execution_time=None
+            execution_time=None,
         )
 
 
@@ -344,20 +363,21 @@ async def start_debate(request: DebateRequest):
     """
     try:
         import time
+
         start_time = time.time()
-        
+
         # Create debate crew - agents will respond to each other
         crew = create_debate_crew(
             topic=request.proposition,
             subject=request.subject,
-            agents_config=request.agents_config
+            agents_config=request.agents_config,
         )
-        
+
         # Execute debate - agents will see each other's arguments
         result = crew.kickoff()
-        
+
         execution_time = time.time() - start_time
-        
+
         # Format debate transcript
         debate_transcript = []
         if isinstance(result, dict):
@@ -369,29 +389,34 @@ async def start_debate(request: DebateRequest):
                     if task.description == task_desc or task_desc in task.description:
                         agent_name = task.agent.role
                         # Determine position from task
-                        if "argue" in task.description.lower() or "favor" in task.description.lower():
+                        if (
+                            "argue" in task.description.lower()
+                            or "favor" in task.description.lower()
+                        ):
                             position = "for"
-                        elif "counter" in task.description.lower() or "against" in task.description.lower():
+                        elif (
+                            "counter" in task.description.lower()
+                            or "against" in task.description.lower()
+                        ):
                             position = "against"
                         break
-                
-                debate_transcript.append({
-                    "agent": agent_name,
-                    "position": position,
-                    "argument": str(output)
-                })
-        
+
+                debate_transcript.append(
+                    {"agent": agent_name, "position": position, "argument": str(output)}
+                )
+
         return DebateResponse(
             success=True,
             debate_transcript=debate_transcript,
-            execution_time=execution_time
+            execution_time=execution_time,
         )
     except Exception as e:
         import traceback
+
         return DebateResponse(
             success=False,
             error=f"{str(e)}\n{traceback.format_exc()}",
-            execution_time=None
+            execution_time=None,
         )
 
 
@@ -402,45 +427,47 @@ async def explain_concept(request: ClassroomDiscussionRequest):
     """
     try:
         import time
+
         start_time = time.time()
-        
+
         # Create crew with expert
         crew = create_classroom_crew(
             subject=request.subject,
             agents_config=request.agents_config,
-            include_visual_assistant=True
+            include_visual_assistant=True,
         )
-        
-        expert_agent = next((a for a in crew.agents if "Expert" in a.role), crew.agents[1])
+
+        expert_agent = next(
+            (a for a in crew.agents if "Expert" in a.role), crew.agents[1]
+        )
         visual_agent = next((a for a in crew.agents if "Visual" in a.role), None)
-        
+
         # Create explanation task
         tasks = [
             create_explanation_task(
                 concept=request.topic,
                 agent=expert_agent,
                 audience_level="intermediate",
-                include_visuals=True
+                include_visuals=True,
             )
         ]
-        
+
         # Add visual task if visual agent exists
         if visual_agent:
             from agents.example_agents import create_whiteboard_content_task
+
             tasks.append(
                 create_whiteboard_content_task(
-                    topic=request.topic,
-                    agent=visual_agent,
-                    content_type="graph"
+                    topic=request.topic, agent=visual_agent, content_type="graph"
                 )
             )
-        
+
         # Execute
         crew.tasks = tasks
         result = crew.kickoff()
-        
+
         execution_time = time.time() - start_time
-        
+
         # Format response
         responses = []
         if isinstance(result, dict):
@@ -448,22 +475,18 @@ async def explain_concept(request: ClassroomDiscussionRequest):
                 agent_name = "Expert"
                 if "visual" in task_desc.lower() or "whiteboard" in task_desc.lower():
                     agent_name = "Visual Assistant"
-                responses.append({
-                    "agent": agent_name,
-                    "message": str(output)
-                })
-        
+                responses.append({"agent": agent_name, "message": str(output)})
+
         return ClassroomDiscussionResponse(
-            success=True,
-            responses=responses,
-            execution_time=execution_time
+            success=True, responses=responses, execution_time=execution_time
         )
     except Exception as e:
         import traceback
+
         return ClassroomDiscussionResponse(
             success=False,
             error=f"{str(e)}\n{traceback.format_exc()}",
-            execution_time=None
+            execution_time=None,
         )
 
 
