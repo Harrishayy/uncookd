@@ -72,3 +72,8 @@ def create_example_crew():
     )
 
     return crew
+
+
+if __name__ == "__main__":
+    example_crew = create_example_crew()
+    example_crew.execute_all_tasks()
