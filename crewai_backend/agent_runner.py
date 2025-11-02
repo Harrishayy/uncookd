@@ -5,7 +5,7 @@ This module provides a single function `run_agent` that abstracts over direct Fa
 
 Usage:
     from agent_runner import run_agent
-    run_agent(
+    result = run_agent(
         mode="direct" or "http",
         topic="What is a derivative?",
         subject="mathematics",
@@ -13,12 +13,41 @@ Usage:
         agent="expert" or "professor" or ...
     )
 
-Returns: None (for now)
+    # Result contains:
+    # - response: JSON with agent_responses, answer, etc.
+    # - json_path: Path to saved JSON file
+    # - ogg_path: Path to generated TTS audio file
+    # - played: Whether audio was played
+
+The function automatically:
+1. Generates agent responses using CrewAI
+2. Saves response to JSON file
+3. Generates TTS audio using tts.py
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any
 import json
 import tempfile
+import sys
+import os
+
+# Add utils to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Text cleaning utility
+try:
+    from utils.text_utils import clean_text_for_tts, truncate_text
+except ImportError:
+    # Fallback if utils module not found
+    def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
+        return text if not max_length or len(text) <= max_length else text[:max_length]
+    def truncate_text(text: str, max_words: int = 500, max_chars: Optional[int] = None) -> str:
+        if max_chars and len(text) > max_chars:
+            return text[:max_chars] + '...'
+        words = text.split()
+        if len(words) > max_words:
+            return ' '.join(words[:max_words]) + '...'
+        return text
 
 # TTS helper
 try:
@@ -75,7 +104,7 @@ def run_agent(
     agent: Optional[str] = None,
     http_url: str = "http://localhost:8000/api/study/help",
     extra: Optional[dict] = None,
-) -> None:
+) -> Optional[Dict[str, Any]]:
     """
     Unified entry point for study help requests.
 
@@ -88,7 +117,12 @@ def run_agent(
         http_url: URL for HTTP mode (default: local FastAPI endpoint)
         extra: Optional dict for future extensibility
     Returns:
-        None (for now)
+        Dict containing:
+            - response: JSON-formatted response with agent_responses, answer, etc.
+            - json_path: Path to saved JSON file
+            - ogg_path: Path to generated audio file (if TTS succeeded)
+            - played: Boolean indicating if audio was played
+        Returns None only if mode is invalid
     """
     payload = {
         "user_question": topic,
@@ -96,7 +130,7 @@ def run_agent(
         "help_type": help_type,
     }
     if agent:
-        payload["agent"] = agent
+        payload["preferred_agent_role"] = agent
     if extra:
         payload.update(extra)
 
@@ -116,10 +150,8 @@ def run_agent(
             subject=subject,
             help_type=help_type,
             conversation_history=None,
+            preferred_agent_role=agent,  # Pass agent as preferred_agent_role
         )
-        # Optionally pass agent if supported
-        if hasattr(req, "agent") and agent:
-            req.agent = agent
         # Await the async endpoint
         import asyncio
         import concurrent.futures
@@ -153,6 +185,28 @@ def run_agent(
             try:
                 # Pydantic model -> dict
                 resp_dict = resp.dict() if hasattr(resp, "dict") else dict(resp)
+
+                # Extract agent responses for JSON output
+                agent_responses = resp_dict.get("agent_responses", [])
+                main_answer = resp_dict.get("answer")
+                success = resp_dict.get("success", False)
+
+                # Build clean JSON output with agent responses
+                json_output = {
+                    "topic": topic,
+                    "subject": subject,
+                    "help_type": help_type,
+                    "mode": mode,
+                    "success": success,
+                    "agent_responses": agent_responses,
+                    "answer": main_answer,
+                    "visual_suggestions": resp_dict.get("visual_suggestions"),
+                    "execution_time": resp_dict.get("execution_time"),
+                }
+
+                # Include error if present
+                if not success and resp_dict.get("error"):
+                    json_output["error"] = resp_dict.get("error")
                 
                 # Debug: print response structure
                 print(f"[agent_runner] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}")
@@ -185,16 +239,30 @@ def run_agent(
                 # Save JSON output for debugging / audit
                 fd, json_path = tempfile.mkstemp(suffix=".json")
                 with open(json_path, "w", encoding="utf-8") as jf:
-                    json.dump(resp_dict, jf, ensure_ascii=False, indent=2)
+                    json.dump(json_output, jf, ensure_ascii=False, indent=2)
                 print(f"[agent_runner] Wrote response JSON to {json_path}")
+
+                # Extract answer for TTS - prefer main answer, then first agent response
+                answer = main_answer
+                if not answer and agent_responses:
+                    answer = (
+                        agent_responses[0].get("message")
+                        if isinstance(agent_responses[0], dict)
+                        else str(agent_responses[0])
+                    )
 
                 # If we have an answer, try to synthesize and play it using TTS
                 ogg_path = None
                 played = False
                 if answer:
+                    # Clean and truncate text for TTS (max ~3000 chars = ~3-4 min speech)
+                    cleaned_answer = clean_text_for_tts(str(answer), max_length=3000)
+                    if len(cleaned_answer) != len(str(answer)):
+                        print(f"[agent_runner] Text cleaned for TTS: {len(str(answer))} -> {len(cleaned_answer)} chars")
+                    
                     if speak_text_ogg:
                         try:
-                            ogg_path, played = speak_text_ogg(answer)
+                            ogg_path, played = speak_text_ogg(cleaned_answer)
                         except Exception as e:
                             print(f"[agent_runner] speak_text_ogg failed: {e}")
                     else:
@@ -206,7 +274,7 @@ def run_agent(
                     f"[agent_runner] Answer: {answer}\nOGG path: {ogg_path}\nPlayed: {played}"
                 )
                 return {
-                    "response": resp_dict,
+                    "response": json_output,
                     "json_path": json_path,
                     "ogg_path": ogg_path,
                     "played": played,
@@ -214,10 +282,52 @@ def run_agent(
 
             except Exception as e:
                 print(f"[agent_runner] Failed to process direct response: {e}")
-                return None
+                # Create error JSON output
+                error_json = {
+                    "topic": topic,
+                    "subject": subject,
+                    "help_type": help_type,
+                    "mode": mode,
+                    "success": False,
+                    "agent_responses": None,
+                    "answer": None,
+                    "error": str(e),
+                    "execution_time": None,
+                }
+                fd, json_path = tempfile.mkstemp(suffix=".json")
+                with open(json_path, "w", encoding="utf-8") as jf:
+                    json.dump(error_json, jf, ensure_ascii=False, indent=2)
+                print(f"[agent_runner] Wrote error JSON to {json_path}")
+                return {
+                    "response": error_json,
+                    "json_path": json_path,
+                    "ogg_path": None,
+                    "played": False,
+                }
         except Exception as e:
             print(f"[agent_runner] Exception in direct mode: {e}")
-        return
+            # Create error JSON output for outer exception
+            error_json = {
+                "topic": topic,
+                "subject": subject,
+                "help_type": help_type,
+                "mode": mode,
+                "success": False,
+                "agent_responses": None,
+                "answer": None,
+                "error": str(e),
+                "execution_time": None,
+            }
+            fd, json_path = tempfile.mkstemp(suffix=".json")
+            with open(json_path, "w", encoding="utf-8") as jf:
+                json.dump(error_json, jf, ensure_ascii=False, indent=2)
+            print(f"[agent_runner] Wrote error JSON to {json_path}")
+            return {
+                "response": error_json,
+                "json_path": json_path,
+                "ogg_path": None,
+                "played": False,
+            }
     elif mode == "http":
         # HTTP request mode
         import requests
@@ -228,27 +338,62 @@ def run_agent(
 
             resp_dict = resp.json()
 
-            # save JSON
+            # Extract agent responses for JSON output
+            agent_responses = resp_dict.get("agent_responses", [])
+            main_answer = resp_dict.get("answer")
+            success = resp_dict.get("success", False)
+
+            # Build clean JSON output with agent responses
+            json_output = {
+                "topic": topic,
+                "subject": subject,
+                "help_type": help_type,
+                "mode": mode,
+                "success": success,
+                "agent_responses": agent_responses,
+                "answer": main_answer,
+                "visual_suggestions": resp_dict.get("visual_suggestions"),
+                "execution_time": resp_dict.get("execution_time"),
+            }
+
+            # Include error if present
+            if not success and resp_dict.get("error"):
+                json_output["error"] = resp_dict.get("error")
+
+            # Save JSON
             fd, json_path = tempfile.mkstemp(suffix=".json")
             with open(json_path, "w", encoding="utf-8") as jf:
-                json.dump(resp_dict, jf, ensure_ascii=False, indent=2)
+                json.dump(json_output, jf, ensure_ascii=False, indent=2)
             print(f"[agent_runner] Wrote response JSON to {json_path}")
 
-            answer = _extract_answer_from_response(resp_dict)
+            # Extract answer for TTS - prefer main answer, then first agent response
+            answer = main_answer
+            if not answer and agent_responses:
+                answer = (
+                    agent_responses[0].get("message")
+                    if isinstance(agent_responses[0], dict)
+                    else str(agent_responses[0])
+                )
 
             ogg_path = None
             played = False
-            if answer and speak_text_ogg:
-                try:
-                    ogg_path, played = speak_text_ogg(answer)
-                except Exception as e:
-                    print(f"[agent_runner] speak_text_ogg failed (http mode): {e}")
+            if answer:
+                # Clean and truncate text for TTS (max ~3000 chars = ~3-4 min speech)
+                cleaned_answer = clean_text_for_tts(str(answer), max_length=3000)
+                if len(cleaned_answer) != len(str(answer)):
+                    print(f"[agent_runner] Text cleaned for TTS: {len(str(answer))} -> {len(cleaned_answer)} chars")
+                
+                if speak_text_ogg:
+                    try:
+                        ogg_path, played = speak_text_ogg(cleaned_answer)
+                    except Exception as e:
+                        print(f"[agent_runner] speak_text_ogg failed (http mode): {e}")
 
             print(
                 f"[agent_runner] Answer: {answer}\nOGG path: {ogg_path}\nPlayed: {played}"
             )
             return {
-                "response": resp_dict,
+                "response": json_output,
                 "json_path": json_path,
                 "ogg_path": ogg_path,
                 "played": played,
@@ -256,10 +401,31 @@ def run_agent(
 
         except Exception as e:
             print(f"[agent_runner] HTTP request failed: {e}")
-        return
+            # Create error JSON output
+            error_json = {
+                "topic": topic,
+                "subject": subject,
+                "help_type": help_type,
+                "mode": mode,
+                "success": False,
+                "agent_responses": None,
+                "answer": None,
+                "error": str(e),
+                "execution_time": None,
+            }
+            fd, json_path = tempfile.mkstemp(suffix=".json")
+            with open(json_path, "w", encoding="utf-8") as jf:
+                json.dump(error_json, jf, ensure_ascii=False, indent=2)
+            print(f"[agent_runner] Wrote error JSON to {json_path}")
+            return {
+                "response": error_json,
+                "json_path": json_path,
+                "ogg_path": None,
+                "played": False,
+            }
     else:
         print(f"[agent_runner] Unknown mode: {mode}")
-        return
+        return None
 
 
 if __name__ == "__main__":

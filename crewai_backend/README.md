@@ -42,6 +42,7 @@ cp .env.example .env
 # Use Python 3.11 specifically (py defaults to a different version)
 py -3.11 server.py
 # Or with uvicorn directly:
+uvicorn agents.agent:app --reload --port 80
 py -3.11 -m uvicorn server:app --reload --port 8000
 ```
 

@@ -174,7 +174,7 @@ async def execute_agent_task(request: AgentRequest):
         task = Task(
             description=request.task,
             agent=agent,
-            expected_output="A detailed response to the task",
+            expected_output="A concise response to the task (under 200 words, approximately 1 minute when spoken)",
         )
 
         # Execute task
@@ -234,7 +234,7 @@ async def execute_crew(request: CrewRequest):
             task = Task(
                 description=task_description,
                 agent=agents[i % len(agents)],  # Distribute tasks among agents
-                expected_output="A detailed response to the task",
+                expected_output="A concise response to the task (under 200 words, approximately 1 minute when spoken)",
             )
             tasks.append(task)
 
@@ -589,65 +589,133 @@ async def study_help(request: StudyHelpRequest):
         # ========================================================================
         # STEP 3: CREATE APPROPRIATE CREW BASED ON HELP TYPE
         # ========================================================================
+        # Map agent name from run_agent args to actual agent roles
+        agent_role_map = {
+            "expert": "Problem Analyst",
+            "professor": "Socratic Mentor",
+            "challenger": "Critical Thinker",
+            "student": "Peer Student",
+            "connector": "Interdisciplinary Connector",
+        }
+        
+        # Normalize preferred_agent_role if it's a short name
+        actual_agent_role = preferred_agent_role
+        if preferred_agent_role and preferred_agent_role.lower() in agent_role_map:
+            actual_agent_role = agent_role_map[preferred_agent_role.lower()]
+        
         # Handle different types of help requests
         if help_type == "explanation":
-            # For explanations, prefer routing to a selected agent if provided,
-            # otherwise default to expert.
+            # For explanations: ONLY the specified agent runs
+            # Create crew to get access to agent creation functions
             crew = create_classroom_crew(subject=subject)
-
-            if preferred_agent_role:
-                tasks = add_user_question_flow(
-                    crew=crew,
-                    question=user_question,
-                    preferred_agent_role=preferred_agent_role,
-                    subject=subject,
-                    context=context,
-                    followups=0,
-                    include_summary=False,
-                )
-            else:
-                expert_agent = next(
-                    (a for a in crew.agents if "Expert" in a.role),
-                    crew.agents[0],
-                )
-                tasks = [
-                    create_explanation_task(
-                        concept=user_question,
-                        agent=expert_agent,
-                        audience_level="intermediate",
-                        include_visuals=None,
-                        context=context,
-                        subject=subject,
-                    )
-                ]
-
-        elif help_type == "discussion":
-            # Use limited flow: primary + at most one follow-up, no summary.
-            crew = create_classroom_crew(subject=subject)
-            tasks = add_user_question_flow(
-                crew=crew,
-                question=user_question,
-                preferred_agent_role=preferred_agent_role,
-                subject=subject,
-                context=context,
-                followups=3,
-                include_summary=False,
+            
+            # Find the specific agent to use
+            from agents.example_agents import find_agent_by_role
+            target_agent = None
+            
+            if actual_agent_role:
+                target_agent = find_agent_by_role(crew, actual_agent_role)
+            
+            # Fallback to expert if agent not found or not specified
+            if not target_agent:
+                target_agent = find_agent_by_role(crew, "Problem Analyst")
+                if not target_agent:
+                    target_agent = crew.agents[0] if crew.agents else None
+            
+            # Create crew with ONLY the target agent
+            from crewai import Crew
+            crew = Crew(
+                agents=[target_agent],
+                tasks=[],
+                verbose=True,
+                process="sequential",  # Sequential even for single agent
             )
-
-        else:  # Default to explanation
-            crew = create_classroom_crew(
-                subject=subject,
-            )
-            expert_agent = next(
-                (a for a in crew.agents if "Expert" in a.role),
-                crew.agents[0],
-            )
+            
+            # Create a single task for this agent only
             tasks = [
                 create_explanation_task(
                     concept=user_question,
-                    agent=expert_agent,
+                    agent=target_agent,
                     audience_level="intermediate",
-                    include_visuals=None,  # Auto-detect
+                    include_visuals=None,
+                    context=context,
+                    subject=subject,
+                )
+            ]
+
+        elif help_type == "discussion":
+            # For discussions: ALL agents participate sequentially
+            crew = create_classroom_crew(subject=subject)
+            
+            # Create tasks for ALL agents to participate in the discussion
+            from agents.example_agents import find_agent_by_role, create_discussion_task
+            
+            tasks = []
+            
+            # Find all available agents
+            professor = find_agent_by_role(crew, "Socratic Mentor")
+            expert = find_agent_by_role(crew, "Problem Analyst")
+            challenger = find_agent_by_role(crew, "Critical Thinker")
+            student = find_agent_by_role(crew, "Peer Student")
+            connector = find_agent_by_role(crew, "Interdisciplinary Connector")
+            
+            # Order agents: Start with primary if specified, then others
+            agent_order = []
+            
+            # Primary agent (if specified) goes first
+            if actual_agent_role:
+                primary = find_agent_by_role(crew, actual_agent_role)
+                if primary:
+                    agent_order.append(primary)
+            
+            # Add all other agents in a logical order
+            for agent in [professor, expert, challenger, student, connector]:
+                if agent and agent not in agent_order:
+                    agent_order.append(agent)
+            
+            # If no primary specified, default order: professor, expert, challenger, student, connector
+            if not agent_order:
+                agent_order = [a for a in [professor, expert, challenger, student, connector] if a]
+            
+            # Create discussion tasks for each agent sequentially
+            for agent in agent_order:
+                tasks.append(
+                    create_discussion_task(
+                        topic=user_question,
+                        agent=agent,
+                        context=context,
+                        whiteboard_aware=None,
+                        subject=subject,
+                    )
+                )
+            
+            # Ensure sequential process to avoid overlap (tasks run one after another)
+            crew.process = "sequential"
+
+        else:  # Default to explanation
+            # Default: single agent explanation
+            crew = create_classroom_crew(subject=subject)
+            
+            from agents.example_agents import find_agent_by_role
+            target_agent = find_agent_by_role(crew, "Problem Analyst")
+            if not target_agent:
+                target_agent = crew.agents[0] if crew.agents else None
+            
+            # Create crew with ONLY the target agent
+            from crewai import Crew
+            crew = Crew(
+                agents=[target_agent],
+                tasks=[],
+                verbose=True,
+                process="sequential",
+            )
+            
+            tasks = [
+                create_explanation_task(
+                    concept=user_question,
+                    agent=target_agent,
+                    audience_level="intermediate",
+                    include_visuals=None,
                     context=context,
                     subject=subject,
                 )
@@ -672,6 +740,29 @@ async def study_help(request: StudyHelpRequest):
         main_answer = None
         visual_suggestions = None
 
+        # Debug: Log result type and attributes for troubleshooting
+        print(f"[STUDY HELP] Result type: {type(result)}")
+        if hasattr(result, "__dict__"):
+            print(f"[STUDY HELP] Result attributes: {list(result.__dict__.keys())}")
+
+        # Try multiple ways to extract task outputs from CrewAI result
+        if isinstance(result, list):
+            # Format: List of outputs, one per task
+            for i, output in enumerate(result):
+                agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
+                response_text = str(output)
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+                
+                if main_answer is None and "Expert" in agent_name:
+                    main_answer = response_text
+        
+        elif isinstance(result, dict):
+            # Format: {task_description: output}
         # Debug: print result type and structure
         print(f"[study_help] Result type: {type(result)}")
         if isinstance(result, dict):
@@ -759,6 +850,97 @@ async def study_help(request: StudyHelpRequest):
                         "description": response_text,
                         "type": "graph",  # Could be extracted from response
                     }
+        
+        elif hasattr(result, "tasks_output"):
+            # Format: CrewAI result object with tasks_output attribute
+            tasks_output = result.tasks_output
+            if isinstance(tasks_output, dict):
+                for task_desc, output in tasks_output.items():
+                    agent_name = "Expert"
+                    for task in tasks:
+                        if task.description == task_desc or task_desc in task.description:
+                            agent_name = task.agent.role
+                            break
+                    
+                    response_text = str(output)
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
+                    
+                    if main_answer is None and "Expert" in agent_name:
+                        main_answer = response_text
+            elif isinstance(tasks_output, list):
+                # If tasks_output is a list
+                for i, output in enumerate(tasks_output):
+                    agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
+                    response_text = str(output)
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
+                    
+                    if main_answer is None and "Expert" in agent_name:
+                        main_answer = response_text
+        
+        # Check for raw attribute (sometimes CrewAI stores raw output here)
+        if not agent_responses and hasattr(result, "raw"):
+            raw_output = result.raw
+            if raw_output:
+                response_text = str(raw_output)
+                agent_name = tasks[0].agent.role if tasks and hasattr(tasks[0], "agent") else "Expert"
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+                if main_answer is None:
+                    main_answer = response_text
+        
+        # Check if tasks have output attributes (after execution)
+        if not agent_responses and tasks:
+            for task in tasks:
+                task_output = None
+                # Try multiple ways to get task output
+                if hasattr(task, "output"):
+                    task_output = task.output
+                elif hasattr(task, "result"):
+                    task_output = task.result
+                elif hasattr(task, "raw_output"):
+                    task_output = task.raw_output
+                
+                if task_output and str(task_output).strip():
+                    agent_name = task.agent.role if hasattr(task, "agent") and task.agent else "Unknown Agent"
+                    response_text = str(task_output).strip()
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
+                    
+                    if main_answer is None and "Expert" in agent_name:
+                        main_answer = response_text
+        
+        # Fallback: if result is a string or single value, treat as single response
+        if not agent_responses:
+            response_text = str(result)
+            if response_text and response_text.strip():
+                # Try to find the first task's agent
+                agent_name = tasks[0].agent.role if tasks and hasattr(tasks[0], "agent") else "Expert"
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+                if main_answer is None:
+                    main_answer = response_text
         elif result is not None:
             # Handle case where result is a string or other type
             result_str = str(result).strip()
