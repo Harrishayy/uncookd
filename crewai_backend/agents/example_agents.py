@@ -429,7 +429,7 @@ def create_discussion_task(
 
     # Check if agent is the professor/teacher (Socratic Mentor)
     is_professor = agent and "Socratic Mentor" in (agent.role or "")
-    
+
     # Only attach whiteboard tools if whiteboard is needed AND agent is the professor
     task_tools = (
         [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
@@ -463,11 +463,12 @@ def create_discussion_task(
         {context_str}
         
         Provide a thoughtful, conversational response that contributes meaningfully to the discussion.
-        Keep your response concise (under 300 words) to maintain engagement.
+        CRITICAL: Keep your response VERY concise - maximum 75 words (approximately 20-25 seconds when spoken aloud).
+        Focus on ONE key point or insight. Be direct and clear.
         If you're a moderator, guide the conversation. If you're an expert, provide insights.
         If you're a challenger, ask critical questions. If you're a student, ask questions and share thoughts.""",
         agent=agent,
-        expected_output="A concise conversational response (under 300 words) that contributes to the discussion, potentially including whiteboard suggestions",
+        expected_output="A very concise conversational response (maximum 75 words, 20-25 seconds when spoken) that contributes to the discussion with ONE key point, potentially including whiteboard suggestions",
         tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 
@@ -519,7 +520,7 @@ def create_explanation_task(
 
     # Check if agent is the professor/teacher (Socratic Mentor)
     is_professor = agent and "Socratic Mentor" in (agent.role or "")
-    
+
     # Only attach whiteboard tools if visuals are needed AND agent is the professor
     task_tools = (
         [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]

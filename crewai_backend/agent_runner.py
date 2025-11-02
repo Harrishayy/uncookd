@@ -25,35 +25,115 @@ The function automatically:
 3. Generates TTS audio using tts.py
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import json
 import tempfile
 import sys
 import os
+import re
 
 # Add utils to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Text cleaning utility
-try:
-    from utils.text_utils import clean_text_for_tts, truncate_text
-except ImportError:
-    # Fallback if utils module not found
-    def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
-        return text if not max_length or len(text) <= max_length else text[:max_length]
-    def truncate_text(text: str, max_words: int = 500, max_chars: Optional[int] = None) -> str:
-        if max_chars and len(text) > max_chars:
-            return text[:max_chars] + '...'
-        words = text.split()
-        if len(words) > max_words:
-            return ' '.join(words[:max_words]) + '...'
+
+def truncate_to_word_limit(text: str, max_words: int = 100) -> str:
+    """Truncate text to a maximum word count, preserving sentence boundaries.
+
+    Args:
+        text: The text to truncate
+        max_words: Maximum number of words (default 100 words ≈ 25-30 seconds of speech)
+
+    Returns:
+        Truncated text ending at a sentence boundary if possible
+    """
+    if not text:
+        return ""
+
+    words = text.split()
+    if len(words) <= max_words:
         return text
 
-# TTS helper
+    # Truncate to max_words
+    truncated_words = words[:max_words]
+    truncated_text = " ".join(truncated_words)
+
+    # Try to end at a sentence boundary (., !, ?)
+    # Look backwards from the end for the last sentence-ending punctuation
+    last_period = max(
+        truncated_text.rfind("."), truncated_text.rfind("!"), truncated_text.rfind("?")
+    )
+
+    if (
+        last_period > len(truncated_text) * 0.5
+    ):  # Only if we're not cutting off more than half
+        return truncated_text[: last_period + 1].strip()
+
+    # Otherwise just add ellipsis
+    return truncated_text.strip() + "..."
+
+
+def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
+    """Clean text for TTS by removing nonsensical symbols but keeping meaningful ones.
+
+    Keeps:
+    - Math symbols that can be spoken: +, -, ×, ÷, =, <, >, %, π, √
+    - Punctuation: . , ! ? ; :
+    - Parentheses and brackets for grouping
+    - Numbers and letters
+
+    Removes:
+    - Markdown formatting: **, *, _, `, #
+    - Code blocks and inline code
+    - URLs
+    - Excessive special characters
+    """
+    if not text:
+        return ""
+
+    # Remove markdown bold/italic
+    text = re.sub(r"\*\*([^\*]+)\*\*", r"\1", text)  # **bold**
+    text = re.sub(r"__([^_]+)__", r"\1", text)  # __bold__
+    text = re.sub(r"(?<!\*)\*([^\*\n]+)\*(?!\*)", r"\1", text)  # *italic*
+    text = re.sub(r"(?<!_)_([^_\n]+)_(?!_)", r"\1", text)  # _italic_
+
+    # Remove inline code
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+
+    # Remove code blocks
+    text = re.sub(r"```[^\n]*\n(.*?)```", r"\1", text, flags=re.DOTALL)
+
+    # Remove markdown headers
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+
+    # Remove URLs
+    text = re.sub(r"https?://[^\s]+", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)  # [text](url)
+
+    # Remove horizontal rules
+    text = re.sub(r"^[-*_]{3,}$", "", text, flags=re.MULTILINE)
+
+    # Clean up list markers but keep the content
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+
+    # Remove excessive newlines
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+
+    # Clean up multiple spaces
+    text = re.sub(r" +", " ", text)
+
+    # Truncate if needed (character-based, for backward compatibility)
+    if max_length and len(text) > max_length:
+        text = text[:max_length] + "..."
+
+    return text.strip()
+
+
+# TTS helpers - import both functions
 try:
-    from tts.tts import speak_text_ogg
+    from tts.tts import text_to_speech_ogg  # Generates OGG without playing
 except Exception:
-    speak_text_ogg = None
+    text_to_speech_ogg = None
 
 
 def _extract_answer_from_response(resp_dict: dict) -> Optional[str]:
@@ -160,6 +240,7 @@ def run_agent(
             # Check if there's a running event loop (from FastAPI async context)
             try:
                 loop = asyncio.get_running_loop()
+
                 # If we're in an async context, we can't use asyncio.run()
                 # Run the async function in a new thread with its own event loop
                 def run_in_thread():
@@ -169,7 +250,7 @@ def run_agent(
                         return new_loop.run_until_complete(study_help(req))
                     finally:
                         new_loop.close()
-                
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(run_in_thread)
                     resp = future.result(timeout=300)  # 5 minute timeout
@@ -207,26 +288,35 @@ def run_agent(
                 # Include error if present
                 if not success and resp_dict.get("error"):
                     json_output["error"] = resp_dict.get("error")
-                
+
                 # Debug: print response structure
-                print(f"[agent_runner] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}")
+                print(
+                    f"[agent_runner] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}"
+                )
                 if isinstance(resp_dict, dict):
-                    print(f"[agent_runner] Response has 'answer': {resp_dict.get('answer')}")
-                    print(f"[agent_runner] Response has 'agent_responses': {resp_dict.get('agent_responses')}")
-                
+                    print(
+                        f"[agent_runner] Response has 'answer': {resp_dict.get('answer')}"
+                    )
+                    print(
+                        f"[agent_runner] Response has 'agent_responses': {resp_dict.get('agent_responses')}"
+                    )
+
                 answer = _extract_answer_from_response(resp_dict)
-                
+
                 # If answer is None, try direct extraction from StudyHelpResponse structure
                 if not answer:
                     answer = resp_dict.get("answer")
                     if not answer and resp_dict.get("agent_responses"):
                         # Get first agent response message
                         agent_responses = resp_dict.get("agent_responses")
-                        if isinstance(agent_responses, list) and len(agent_responses) > 0:
+                        if (
+                            isinstance(agent_responses, list)
+                            and len(agent_responses) > 0
+                        ):
                             first_response = agent_responses[0]
                             if isinstance(first_response, dict):
                                 answer = first_response.get("message")
-                
+
                 # If still no answer, try to get from any string value in response
                 if not answer and isinstance(resp_dict, dict):
                     # Look for final_output or any string value
@@ -242,42 +332,68 @@ def run_agent(
                     json.dump(json_output, jf, ensure_ascii=False, indent=2)
                 print(f"[agent_runner] Wrote response JSON to {json_path}")
 
-                # Extract answer for TTS - prefer main answer, then first agent response
-                answer = main_answer
-                if not answer and agent_responses:
-                    answer = (
-                        agent_responses[0].get("message")
-                        if isinstance(agent_responses[0], dict)
-                        else str(agent_responses[0])
+                # Generate TTS for ALL agent responses sequentially (no overlapping)
+                ogg_paths = []
+                if text_to_speech_ogg and agent_responses:
+                    print(
+                        f"[agent_runner] Generating TTS for {len(agent_responses)} agent(s)..."
+                    )
+                    for i, resp in enumerate(agent_responses):
+                        if isinstance(resp, dict):
+                            agent_name = resp.get("agent", "Unknown Agent")
+                            message = resp.get("message", "")
+
+                            if message and message.strip():
+                                # First truncate to word limit (100 words ≈ 25 seconds)
+                                truncated_message = truncate_to_word_limit(
+                                    str(message), max_words=100
+                                )
+
+                                # Then clean text for TTS (remove markdown, etc.)
+                                cleaned_message = clean_text_for_tts(truncated_message)
+
+                                word_count = len(cleaned_message.split())
+
+                                if cleaned_message:
+                                    try:
+                                        print(
+                                            f"[agent_runner] Generating TTS for {agent_name} ({word_count} words, ~{word_count / 3:.0f}s)..."
+                                        )
+                                        # Generate OGG bytes without playing
+                                        ogg_bytes = text_to_speech_ogg(cleaned_message)
+
+                                        if ogg_bytes:
+                                            # Save to temp file
+                                            fd_ogg, ogg_path = tempfile.mkstemp(
+                                                suffix=f"_agent{i + 1}.ogg"
+                                            )
+                                            with open(ogg_path, "wb") as f:
+                                                f.write(ogg_bytes)
+                                            ogg_paths.append(
+                                                {
+                                                    "agent": agent_name,
+                                                    "path": ogg_path,
+                                                    "index": i,
+                                                }
+                                            )
+                                            print(
+                                                f"[agent_runner] ✓ TTS saved for {agent_name}: {ogg_path}"
+                                            )
+                                    except Exception as e:
+                                        print(
+                                            f"[agent_runner] TTS generation failed for {agent_name}: {e}"
+                                        )
+                elif not text_to_speech_ogg:
+                    print(
+                        "[agent_runner] text_to_speech_ogg not available; install dependencies or check tts module."
                     )
 
-                # If we have an answer, try to synthesize and play it using TTS
-                ogg_path = None
-                played = False
-                if answer:
-                    # Clean and truncate text for TTS (max ~3000 chars = ~3-4 min speech)
-                    cleaned_answer = clean_text_for_tts(str(answer), max_length=3000)
-                    if len(cleaned_answer) != len(str(answer)):
-                        print(f"[agent_runner] Text cleaned for TTS: {len(str(answer))} -> {len(cleaned_answer)} chars")
-                    
-                    if speak_text_ogg:
-                        try:
-                            ogg_path, played = speak_text_ogg(cleaned_answer)
-                        except Exception as e:
-                            print(f"[agent_runner] speak_text_ogg failed: {e}")
-                    else:
-                        print(
-                            "[agent_runner] speak_text_ogg not available; install dependencies or check tts module."
-                        )
-
-                print(
-                    f"[agent_runner] Answer: {answer}\nOGG path: {ogg_path}\nPlayed: {played}"
-                )
+                print(f"[agent_runner] Generated {len(ogg_paths)} TTS file(s)")
                 return {
                     "response": json_output,
                     "json_path": json_path,
-                    "ogg_path": ogg_path,
-                    "played": played,
+                    "ogg_paths": ogg_paths,  # List of all TTS files generated
+                    "num_tts_files": len(ogg_paths),
                 }
 
             except Exception as e:
@@ -301,8 +417,8 @@ def run_agent(
                 return {
                     "response": error_json,
                     "json_path": json_path,
-                    "ogg_path": None,
-                    "played": False,
+                    "ogg_paths": [],
+                    "num_tts_files": 0,
                 }
         except Exception as e:
             print(f"[agent_runner] Exception in direct mode: {e}")
@@ -366,37 +482,68 @@ def run_agent(
                 json.dump(json_output, jf, ensure_ascii=False, indent=2)
             print(f"[agent_runner] Wrote response JSON to {json_path}")
 
-            # Extract answer for TTS - prefer main answer, then first agent response
-            answer = main_answer
-            if not answer and agent_responses:
-                answer = (
-                    agent_responses[0].get("message")
-                    if isinstance(agent_responses[0], dict)
-                    else str(agent_responses[0])
+            # Generate TTS for ALL agent responses sequentially (no overlapping)
+            ogg_paths = []
+            if text_to_speech_ogg and agent_responses:
+                print(
+                    f"[agent_runner] Generating TTS for {len(agent_responses)} agent(s)..."
+                )
+                for i, resp in enumerate(agent_responses):
+                    if isinstance(resp, dict):
+                        agent_name = resp.get("agent", "Unknown Agent")
+                        message = resp.get("message", "")
+
+                        if message and message.strip():
+                            # First truncate to word limit (100 words ≈ 25 seconds)
+                            truncated_message = truncate_to_word_limit(
+                                str(message), max_words=100
+                            )
+
+                            # Then clean text for TTS (remove markdown, etc.)
+                            cleaned_message = clean_text_for_tts(truncated_message)
+
+                            word_count = len(cleaned_message.split())
+
+                            if cleaned_message:
+                                try:
+                                    print(
+                                        f"[agent_runner] Generating TTS for {agent_name} ({word_count} words, ~{word_count / 3:.0f}s)..."
+                                    )
+                                    # Generate OGG bytes without playing
+                                    ogg_bytes = text_to_speech_ogg(cleaned_message)
+
+                                    if ogg_bytes:
+                                        # Save to temp file
+                                        fd_ogg, ogg_path = tempfile.mkstemp(
+                                            suffix=f"_agent{i + 1}.ogg"
+                                        )
+                                        with open(ogg_path, "wb") as f:
+                                            f.write(ogg_bytes)
+                                        ogg_paths.append(
+                                            {
+                                                "agent": agent_name,
+                                                "path": ogg_path,
+                                                "index": i,
+                                            }
+                                        )
+                                        print(
+                                            f"[agent_runner] ✓ TTS saved for {agent_name}: {ogg_path}"
+                                        )
+                                except Exception as e:
+                                    print(
+                                        f"[agent_runner] TTS generation failed for {agent_name}: {e}"
+                                    )
+            elif not text_to_speech_ogg:
+                print(
+                    "[agent_runner] text_to_speech_ogg not available; install dependencies or check tts module."
                 )
 
-            ogg_path = None
-            played = False
-            if answer:
-                # Clean and truncate text for TTS (max ~3000 chars = ~3-4 min speech)
-                cleaned_answer = clean_text_for_tts(str(answer), max_length=3000)
-                if len(cleaned_answer) != len(str(answer)):
-                    print(f"[agent_runner] Text cleaned for TTS: {len(str(answer))} -> {len(cleaned_answer)} chars")
-                
-                if speak_text_ogg:
-                    try:
-                        ogg_path, played = speak_text_ogg(cleaned_answer)
-                    except Exception as e:
-                        print(f"[agent_runner] speak_text_ogg failed (http mode): {e}")
-
-            print(
-                f"[agent_runner] Answer: {answer}\nOGG path: {ogg_path}\nPlayed: {played}"
-            )
+            print(f"[agent_runner] Generated {len(ogg_paths)} TTS file(s)")
             return {
                 "response": json_output,
                 "json_path": json_path,
-                "ogg_path": ogg_path,
-                "played": played,
+                "ogg_paths": ogg_paths,  # List of all TTS files generated
+                "num_tts_files": len(ogg_paths),
             }
 
         except Exception as e:
@@ -420,8 +567,8 @@ def run_agent(
             return {
                 "response": error_json,
                 "json_path": json_path,
-                "ogg_path": None,
-                "played": False,
+                "ogg_paths": [],
+                "num_tts_files": 0,
             }
     else:
         print(f"[agent_runner] Unknown mode: {mode}")
@@ -429,11 +576,23 @@ def run_agent(
 
 
 if __name__ == "__main__":
-    # Example usage
-    run_agent(
+    # Example usage - Test with discussion mode to generate TTS for multiple agents
+    # Each agent's response is limited to 100 words (≈25 seconds of audio)
+    result = run_agent(
         mode="direct",
         topic="What is a derivative?",
         subject="mathematics",
-        help_type="explanation",
-        agent="expert",
+        help_type="discussion",  # Multiple agents will respond
+        agent="expert",  # Primary agent
     )
+
+    if result:
+        print("\n" + "=" * 60)
+        print("TTS Generation Summary:")
+        print(f"  - JSON saved to: {result['json_path']}")
+        print(f"  - Generated {result['num_tts_files']} TTS file(s)")
+        print("  - Each response limited to 100 words (~25 seconds)")
+        if result["ogg_paths"]:
+            for ogg_info in result["ogg_paths"]:
+                print(f"    • {ogg_info['agent']}: {ogg_info['path']}")
+        print("=" * 60 + "\n")
