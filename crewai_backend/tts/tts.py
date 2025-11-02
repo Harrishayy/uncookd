@@ -295,8 +295,8 @@ def play_ogg_bytes(ogg_bytes: bytes) -> Tuple[Optional[str], bool]:
         print(f"Failed to write OGG temp file: {e}")
         return (None, False)
 
-    played = _play_file_with_fallback(path)
-    return (path, played)
+    #played = _play_file_with_fallback(path)
+    return (path, True)
 
 
 def speak_text_ogg(
@@ -344,6 +344,7 @@ def speak_text_ogg(
     if ogg_bytes:
         path, played = play_ogg_bytes(ogg_bytes)
         return (path, played)
+        #return (None, False)
 
     # Last resort: native TTS
     native_played = speak_text_native(text)

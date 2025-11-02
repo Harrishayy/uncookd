@@ -763,48 +763,44 @@ async def study_help(request: StudyHelpRequest):
         
         elif isinstance(result, dict):
             # Format: {task_description: output}
-        # Debug: print result type and structure
-        print(f"[study_help] Result type: {type(result)}")
-        if isinstance(result, dict):
+            # Debug: print result type and structure
+            print(f"[study_help] Result type: {type(result)}")
             print(f"[study_help] Result dict keys: {list(result.keys())}")
             for key, val in result.items():
                 val_str = str(val) if val else "None"
                 print(f"[study_help] Key '{key[:50]}' -> Value (preview): {val_str[:150]}")
-        else:
-            print(f"[study_help] Result as string (preview): {str(result)[:200]}")
-        
-        # Also check tasks for outputs after execution
-        print(f"[study_help] Checking {len(tasks)} tasks for outputs...")
-        for i, task in enumerate(tasks):
-            task_output = None
-            # Try multiple possible attributes
-            for attr in ['output', 'raw_output', 'result', 'final_output']:
-                if hasattr(task, attr):
-                    val = getattr(task, attr, None)
-                    if val:
-                        task_output = val
-                        print(f"[study_help] Task {i} found output in '{attr}': {str(val)[:100]}...")
-                        break
             
-            if task_output:
-                output_str = str(task_output).strip()
-                # Skip empty outputs
-                if output_str and output_str != "```" and output_str.replace("`", "").strip():
-                    agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
-                    # Add to agent_responses if not already present
-                    if not any(resp.get("message") == output_str for resp in agent_responses):
-                        agent_responses.append({
-                            "agent": agent_name,
-                            "message": output_str,
-                        })
-                    # Use as main_answer if we don't have one
-                    if main_answer is None or main_answer.strip() == "":
-                        main_answer = output_str
-            else:
-                print(f"[study_help] Task {i} ({task.description[:50]}...) has no output attribute")
-
-        if isinstance(result, dict):
-            # Then parse the result dict
+            # Also check tasks for outputs after execution
+            print(f"[study_help] Checking {len(tasks)} tasks for outputs...")
+            for i, task in enumerate(tasks):
+                task_output = None
+                # Try multiple possible attributes
+                for attr in ['output', 'raw_output', 'result', 'final_output']:
+                    if hasattr(task, attr):
+                        val = getattr(task, attr, None)
+                        if val:
+                            task_output = val
+                            print(f"[study_help] Task {i} found output in '{attr}': {str(val)[:100]}...")
+                            break
+                
+                if task_output:
+                    output_str = str(task_output).strip()
+                    # Skip empty outputs
+                    if output_str and output_str != "```" and output_str.replace("`", "").strip():
+                        agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
+                        # Add to agent_responses if not already present
+                        if not any(resp.get("message") == output_str for resp in agent_responses):
+                            agent_responses.append({
+                                "agent": agent_name,
+                                "message": output_str,
+                            })
+                        # Use as main_answer if we don't have one
+                        if main_answer is None or main_answer.strip() == "":
+                            main_answer = output_str
+                else:
+                    print(f"[study_help] Task {i} ({task.description[:50]}...) has no output attribute")
+            
+            # Parse the result dict
             for task_desc, output in result.items():
                 # Extract agent name by matching task
                 agent_name = "Assistant"
