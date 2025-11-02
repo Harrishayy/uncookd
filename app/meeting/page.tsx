@@ -45,19 +45,60 @@ export default function Page() {
     startAudioLevelMonitoring,
     startTranscriptionForStream,
     } = useMeetingAudio(SIGNALING_URL, {
-    onTranscription: (entry) => {
-      // This is where you can send each transcript entry to your backend
-      // fetch("/api/transcript", {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify(entry),
-      // });
+    onTranscription: async (entry) => {
       const timestamp = new Date(entry.timestamp).toLocaleTimeString();
       console.log(
         `[Transcript ${entry.isFinal ? '✓ FINAL' : '⏳ INTERIM'}] ${timestamp}:`,
         entry.text
       );
       console.log('Full entry:', entry);
+      
+      // Send transcript to backend and receive audio response
+      if (entry.isFinal && entry.text.trim()) {
+        try {
+          const response = await fetch('/api/transcript', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              transcript: entry.text,
+              timestamp: entry.timestamp,
+              isFinal: entry.isFinal,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[Transcript API] Response:', data);
+            
+            // Play audio response if available
+            if (data.audio) {
+              try {
+                // Decode base64 audio
+                const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // Create and play audio element
+                const audio = new Audio(audioUrl);
+                audio.play().catch(err => {
+                  console.error('[Transcript API] Error playing audio:', err);
+                });
+                
+                // Clean up URL after playback
+                audio.onended = () => {
+                  URL.revokeObjectURL(audioUrl);
+                };
+              } catch (audioError) {
+                console.error('[Transcript API] Error processing audio:', audioError);
+              }
+            }
+          } else {
+            console.error('[Transcript API] Request failed:', response.status);
+          }
+        } catch (error) {
+          console.error('[Transcript API] Error sending transcript:', error);
+        }
+      }
     },
   });
 

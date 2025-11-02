@@ -217,6 +217,71 @@ function BoardInner({
 		;(window as any).editor = editor
 	}, [agent, editor, setAgent, onAgentError])
 
+	// Track whiteboard updates and send to backend
+	useEffect(() => {
+		if (!editor) return
+
+		let debounceTimer: NodeJS.Timeout | null = null
+
+		// Listen for whiteboard changes with debouncing
+		const handleUpdate = () => {
+			// Clear existing timer
+			if (debounceTimer) {
+				clearTimeout(debounceTimer)
+			}
+
+			// Debounce API calls (send max once per second)
+			debounceTimer = setTimeout(async () => {
+				try {
+					// Get current page state
+					const pageState = editor.getInstanceState()
+					const shapes = editor.getCurrentPageShapes()
+					
+					// Send update to backend
+					const updateData = {
+						pageState,
+						shapesCount: shapes.length,
+						timestamp: Date.now(),
+					}
+
+					const response = await fetch('/api/whiteboard-update', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							boardId: 'meeting-whiteboard',
+							update: updateData,
+						}),
+					})
+
+					if (response.ok) {
+						const data = await response.json()
+						console.log('[Whiteboard Update API] Response:', data)
+						
+						// Process any instructions returned from backend
+						if (data.instructions && Array.isArray(data.instructions) && data.instructions.length > 0) {
+							console.log('[Whiteboard Update API] Received instructions:', data.instructions)
+							// TODO: Apply instructions to board if needed
+						}
+					}
+				} catch (error) {
+					console.error('[Whiteboard Update API] Error:', error)
+				}
+			}, 1000)
+		}
+
+		// Subscribe to editor changes
+		const unsubscribe = editor.store.listen(() => {
+			handleUpdate()
+		})
+
+		return () => {
+			if (debounceTimer) {
+				clearTimeout(debounceTimer)
+			}
+			unsubscribe()
+		}
+	}, [editor])
+
 	// Process prompt when it changes
 	useEffect(() => {
 		if (!agent || !agentPrompt || !editor) return

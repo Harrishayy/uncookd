@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface DesmosCalculatorProps {
   isOpen: boolean;
@@ -17,6 +17,8 @@ export default function DesmosCalculator({ isOpen, onClose }: DesmosCalculatorPr
   const containerRef = useRef<HTMLDivElement>(null);
   const calculatorRef = useRef<any>(null);
   const scriptLoadedRef = useRef<boolean>(false);
+  const [expressionInput, setExpressionInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Load Desmos API script
   useEffect(() => {
@@ -65,6 +67,60 @@ export default function DesmosCalculator({ isOpen, onClose }: DesmosCalculatorPr
     };
   }, [isOpen]);
 
+  // Handle plotting expression via API
+  const handlePlotExpression = async (expression: string) => {
+    if (!expression.trim() || !calculatorRef.current) return;
+    
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/desmos-plot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expression: expression,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[Desmos Plot API] Response:', data);
+        
+        if (data.expression) {
+          // Add expression to calculator
+          calculatorRef.current.setExpression({
+            id: `expr-${Date.now()}`,
+            latex: data.expression,
+          });
+          
+          // Set view bounds if provided
+          if (data.viewBounds) {
+            calculatorRef.current.setMathBounds({
+              left: data.viewBounds.xMin,
+              right: data.viewBounds.xMax,
+              bottom: data.viewBounds.yMin,
+              top: data.viewBounds.yMax,
+            });
+          }
+        }
+      } else {
+        console.error('[Desmos Plot API] Request failed:', response.status);
+      }
+    } catch (error) {
+      console.error('[Desmos Plot API] Error:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle submit expression
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (expressionInput.trim()) {
+      handlePlotExpression(expressionInput);
+      setExpressionInput('');
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -82,6 +138,28 @@ export default function DesmosCalculator({ isOpen, onClose }: DesmosCalculatorPr
           </svg>
         </button>
       </div>
+      
+      {/* Expression input form */}
+      <div className="p-4 bg-gray-800/50 border-b border-gray-700">
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={expressionInput}
+            onChange={(e) => setExpressionInput(e.target.value)}
+            placeholder="Enter mathematical expression (e.g., y=x^2, sin(x), etc.)"
+            className="flex-1 px-4 py-2 rounded-lg bg-gray-700 text-gray-100 placeholder-gray-400 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={isProcessing}
+          />
+          <button
+            type="submit"
+            disabled={isProcessing || !expressionInput.trim()}
+            className="px-6 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isProcessing ? 'Processing...' : 'Plot'}
+          </button>
+        </form>
+      </div>
+      
       <div 
         ref={containerRef} 
         className="w-full h-[600px] bg-white"
