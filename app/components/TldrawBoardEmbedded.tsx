@@ -153,7 +153,7 @@ function BoardInner({
 }) {
 	const editor = useEditor()
 	const agent = useTldrawAgent(editor, 'agent')
-	const processedPromptRef = useRef<boolean>(false)
+	const processedPromptRef = useRef<string | null>(null)  // Track which prompt was processed
 	const hasValidatedShapes = useRef<boolean>(false)
 
 	// Validate and clean up invalid draw shapes on mount and when shapes change
@@ -171,16 +171,20 @@ function BoardInner({
 					
 					if (segments && Array.isArray(segments)) {
 						// Check each segment for valid point count
-						for (const segment of segments) {
-							if (segment && segment.points) {
-								if (!Array.isArray(segment.points) || segment.points.length < 2) {
-									invalidDrawShapes.push(shape.id)
-									break
+						if (segments.length === 0) {
+							invalidDrawShapes.push(shape.id)
+						} else {
+							for (const segment of segments) {
+								if (segment && segment.points) {
+									if (!Array.isArray(segment.points) || segment.points.length < 2) {
+										invalidDrawShapes.push(shape.id)
+										break
+									}
 								}
 							}
 						}
-					} else if (!segments || (Array.isArray(segments) && segments.length === 0)) {
-						// No segments or empty segments array
+					} else {
+						// No segments or not an array
 						invalidDrawShapes.push(shape.id)
 					}
 				}
@@ -286,25 +290,35 @@ function BoardInner({
 	useEffect(() => {
 		if (!agent || !agentPrompt || !editor) return
 		
-		if (processedPromptRef.current) return
+		// Create a stable key for this prompt (remove timestamp if present)
+		const promptKey = typeof agentPrompt === 'string' 
+			? agentPrompt.replace(/\s*\[\d+\]\s*$/, '').trim()  // Remove timestamp suffix
+			: JSON.stringify(agentPrompt)
+		
+		// Skip if we've already processed this exact prompt
+		if (processedPromptRef.current === promptKey) {
+			console.log('[Agent] Prompt already processed, skipping:', promptKey.substring(0, 50))
+			return
+		}
 
 		// Mark as processed
-		processedPromptRef.current = true
+		processedPromptRef.current = promptKey
 
-		console.log('[Agent] Processing prompt:', agentPrompt)
+		console.log('[Agent] Processing new prompt:', promptKey.substring(0, 100))
 
-		// Execute prompt
+		// Execute prompt (use original agentPrompt, not the cleaned key)
 		agent.prompt(agentPrompt)
 			.then(() => {
 				console.log('[Agent] Prompt completed')
-				processedPromptRef.current = false
+				// Don't reset processedPromptRef here - keep it so same prompt isn't reprocessed
 				if (onAgentComplete) {
 					onAgentComplete()
 				}
 			})
 			.catch((error) => {
 				console.error('[Agent] Prompt failed:', error)
-				processedPromptRef.current = false
+				// Reset on error so we can retry
+				processedPromptRef.current = null
 				if (onAgentError) {
 					onAgentError(error)
 				}

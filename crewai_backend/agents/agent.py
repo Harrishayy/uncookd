@@ -10,6 +10,9 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uvicorn
 import json
+import os
+import sys
+import base64
 from crewai import Agent, Task, Crew
 from tts.tts import text_to_speech_stream
 from agents.example_agents import (
@@ -20,6 +23,28 @@ from agents.example_agents import (
     create_explanation_task,
     add_user_question_flow,
 )
+
+# Import agent_runner for transcript processing
+# Ensure we can import from parent directory
+_backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _backend_root not in sys.path:
+    sys.path.insert(0, _backend_root)
+
+try:
+    from agent_runner import run_agent, _extract_answer_from_response
+except ImportError as e:
+    print(f"[agent.py] Warning: Could not import agent_runner: {e}")
+    print(f"[agent.py] Backend root: {_backend_root}")
+    print(f"[agent.py] Python path: {sys.path[:3]}")
+    run_agent = None
+    _extract_answer_from_response = None
+
+# Import TTS functions
+try:
+    from tts.tts import text_to_speech
+except ImportError as e:
+    print("[agent.py] Warning: Could not import TTS functions. Audio features may not work.")
+    text_to_speech = None
 
 app = FastAPI(title="CrewAI Backend API", version="1.0.0")
 
@@ -125,6 +150,7 @@ class StudyHelpResponse(BaseModel):
     visual_suggestions: Optional[Dict[str, Any]] = (
         None  # Whiteboard content suggestions
     )
+    whiteboard_data: Optional[Dict[str, Any]] = None  # Whiteboard tool output JSON (for TldrawBoardEmbedded)
     error: Optional[str] = None
     execution_time: Optional[float] = None
 
@@ -739,6 +765,70 @@ async def study_help(request: StudyHelpRequest):
         agent_responses = []
         main_answer = None
         visual_suggestions = None
+        whiteboard_data = None  # Whiteboard tool output JSON
+
+        # Helper function to extract whiteboard tool output from text
+        def extract_whiteboard_tool_output(text: str) -> Optional[Dict[str, Any]]:
+            """Extract whiteboard tool output JSON from agent response text."""
+            if not text:
+                return None
+            import json
+            import re
+            
+            # First, try to parse the entire text as JSON (tool might return JSON directly)
+            try:
+                parsed = json.loads(text.strip())
+                if isinstance(parsed, dict) and (
+                    "type" in parsed or 
+                    "render_engine" in parsed or
+                    parsed.get("type") in ["graph", "diagram", "concept_map", "step_by_step"]
+                ):
+                    print(f"[study_help] Found whiteboard tool output (direct JSON): {parsed.get('type', 'unknown')}")
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+            
+            # Try to find JSON blocks in the text (common patterns)
+            # Pattern 1: JSON code block ```json ... ```
+            json_pattern = r'```json\s*(\{.*?\})\s*```'
+            matches = re.findall(json_pattern, text, re.DOTALL)
+            
+            # Pattern 2: Code block without language tag ``` ... ```
+            if not matches:
+                json_pattern = r'```\s*(\{.*?\})\s*```'
+                matches = re.findall(json_pattern, text, re.DOTALL)
+            
+            # Pattern 3: Plain JSON object (more sophisticated pattern)
+            if not matches:
+                # Find JSON objects that might span multiple lines
+                json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+                matches = re.findall(json_pattern, text, re.DOTALL)
+            
+            # Try to parse each match as whiteboard tool output
+            for match in matches:
+                try:
+                    # Clean up the match (remove extra whitespace)
+                    cleaned = match.strip()
+                    parsed = json.loads(cleaned)
+                    # Check if it looks like whiteboard tool output
+                    if isinstance(parsed, dict) and (
+                        "type" in parsed or 
+                        "render_engine" in parsed or
+                        parsed.get("type") in ["graph", "diagram", "concept_map", "step_by_step"] or
+                        "specifications" in parsed or
+                        "instructions" in parsed
+                    ):
+                        print(f"[study_help] Found whiteboard tool output: {parsed.get('type', 'unknown')}")
+                        return parsed
+                except (json.JSONDecodeError, ValueError) as e:
+                    continue
+            
+            # Last resort: check if text contains whiteboard tool indicators
+            # Sometimes the tool output might be partially in text format
+            if any(keyword in text.lower() for keyword in ["render_engine", "visualization_spec", "generate_whiteboard_visual"]):
+                print(f"[study_help] Warning: Text contains whiteboard keywords but couldn't parse JSON")
+            
+            return None
 
         # Debug: Log result type and attributes for troubleshooting
         print(f"[STUDY HELP] Result type: {type(result)}")
@@ -751,6 +841,14 @@ async def study_help(request: StudyHelpRequest):
             for i, output in enumerate(result):
                 agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
                 response_text = str(output)
+                
+                # Check if this is the professor/teacher agent and extract whiteboard tool output
+                if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                    extracted = extract_whiteboard_tool_output(response_text)
+                    if extracted:
+                        whiteboard_data = extracted
+                        print(f"[study_help] Extracted whiteboard data from professor agent (list format)")
+                
                 agent_responses.append(
                     {
                         "agent": agent_name,
@@ -788,6 +886,14 @@ async def study_help(request: StudyHelpRequest):
                     # Skip empty outputs
                     if output_str and output_str != "```" and output_str.replace("`", "").strip():
                         agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
+                        
+                        # Check if this is the professor/teacher agent and extract whiteboard tool output
+                        if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                            extracted = extract_whiteboard_tool_output(output_str)
+                            if extracted:
+                                whiteboard_data = extracted
+                                print(f"[study_help] Extracted whiteboard data from professor agent task output")
+                        
                         # Add to agent_responses if not already present
                         if not any(resp.get("message") == output_str for resp in agent_responses):
                             agent_responses.append({
@@ -799,6 +905,22 @@ async def study_help(request: StudyHelpRequest):
                             main_answer = output_str
                 else:
                     print(f"[study_help] Task {i} ({task.description[:50]}...) has no output attribute")
+                
+                # Also check for intermediate_steps (where tool outputs might be stored)
+                if hasattr(task, 'intermediate_steps') and task.intermediate_steps:
+                    print(f"[study_help] Task {i} has intermediate_steps, checking for whiteboard tool output...")
+                    agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
+                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                        for step in task.intermediate_steps:
+                            # Step format: (tool_name, tool_input) or (action, observation)
+                            if isinstance(step, (list, tuple)) and len(step) >= 2:
+                                tool_output = step[1]  # Observation/result is typically second element
+                                if tool_output:
+                                    extracted = extract_whiteboard_tool_output(str(tool_output))
+                                    if extracted:
+                                        whiteboard_data = extracted
+                                        print(f"[study_help] Extracted whiteboard data from intermediate_steps")
+                                        break
             
             # Parse the result dict
             for task_desc, output in result.items():
@@ -812,6 +934,13 @@ async def study_help(request: StudyHelpRequest):
                         break
 
                 response_text = str(output).strip()
+                
+                # Check if this is the professor/teacher agent and extract whiteboard tool output
+                if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                    extracted = extract_whiteboard_tool_output(response_text)
+                    if extracted:
+                        whiteboard_data = extracted
+                        print(f"[study_help] Extracted whiteboard data from professor agent response")
                 
                 # Skip empty responses or markdown code blocks with no content
                 if not response_text or response_text == "```" or response_text.replace("`", "").strip() == "":
@@ -859,6 +988,14 @@ async def study_help(request: StudyHelpRequest):
                             break
                     
                     response_text = str(output)
+                    
+                    # Check if this is the professor/teacher agent and extract whiteboard tool output
+                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                        extracted = extract_whiteboard_tool_output(response_text)
+                        if extracted:
+                            whiteboard_data = extracted
+                            print(f"[study_help] Extracted whiteboard data from professor agent (tasks_output dict)")
+                    
                     agent_responses.append(
                         {
                             "agent": agent_name,
@@ -873,6 +1010,14 @@ async def study_help(request: StudyHelpRequest):
                 for i, output in enumerate(tasks_output):
                     agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
                     response_text = str(output)
+                    
+                    # Check if this is the professor/teacher agent and extract whiteboard tool output
+                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                        extracted = extract_whiteboard_tool_output(response_text)
+                        if extracted:
+                            whiteboard_data = extracted
+                            print(f"[study_help] Extracted whiteboard data from professor agent (tasks_output list)")
+                    
                     agent_responses.append(
                         {
                             "agent": agent_name,
@@ -913,6 +1058,14 @@ async def study_help(request: StudyHelpRequest):
                 if task_output and str(task_output).strip():
                     agent_name = task.agent.role if hasattr(task, "agent") and task.agent else "Unknown Agent"
                     response_text = str(task_output).strip()
+                    
+                    # Check if this is the professor/teacher agent and extract whiteboard tool output
+                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                        extracted = extract_whiteboard_tool_output(response_text)
+                        if extracted:
+                            whiteboard_data = extracted
+                            print(f"[study_help] Extracted whiteboard data from professor agent (fallback task output)")
+                    
                     agent_responses.append(
                         {
                             "agent": agent_name,
@@ -982,12 +1135,14 @@ async def study_help(request: StudyHelpRequest):
         
         print(f"[study_help] Final main_answer length: {len(main_answer) if main_answer else 0} chars")
         print(f"[study_help] Final agent_responses count: {len(agent_responses)}")
+        print(f"[study_help] Whiteboard data extracted: {whiteboard_data is not None}")
 
         return StudyHelpResponse(
             success=True,
             answer=main_answer,
             agent_responses=agent_responses,
             visual_suggestions=visual_suggestions,
+            whiteboard_data=whiteboard_data,
             execution_time=execution_time,
         )
 
@@ -999,6 +1154,155 @@ async def study_help(request: StudyHelpRequest):
             error=f"{str(e)}\n{traceback.format_exc()}",
             execution_time=None,
         )
+
+
+# ============================================================================
+# TRANSCRIPT / GENERATE RESPONSE ENDPOINT - For meeting page transcript API
+# ============================================================================
+
+class TranscriptRequest(BaseModel):
+    transcript: str
+    timestamp: Optional[int] = None
+    isFinal: Optional[bool] = True
+
+
+@app.post("/api/generate-response")
+async def generate_response(body: TranscriptRequest):
+    """
+    Receives transcript from frontend and returns audio response.
+    This endpoint processes speech transcripts and generates audio responses.
+    Used by the meeting page transcript API.
+    """
+    user_message = body.transcript
+    
+    try:
+        # Use agent_runner to process the transcript
+        if run_agent:
+            # Use direct mode to call the agent
+            result = run_agent(
+                mode="direct",
+                topic=user_message,
+                subject="general",  # Can be extracted from context if needed
+                help_type="explanation",
+                agent=None,  # Auto-select appropriate agent
+            )
+            
+            if result and result.get("response"):
+                # Extract answer from response
+                resp_dict = result["response"]
+                
+                # Debug: print response structure
+                print(f"[generate-response] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}")
+                if isinstance(resp_dict, dict):
+                    print(f"[generate-response] Has 'answer': {resp_dict.get('answer') is not None}")
+                    print(f"[generate-response] Has 'agent_responses': {resp_dict.get('agent_responses') is not None}")
+                    if resp_dict.get('agent_responses'):
+                        print(f"[generate-response] agent_responses count: {len(resp_dict.get('agent_responses', []))}")
+                
+                response_text = None
+                
+                # Try extraction function first
+                if _extract_answer_from_response:
+                    response_text = _extract_answer_from_response(resp_dict)
+                    print(f"[generate-response] After extraction function: {response_text[:50] if response_text else 'None'}...")
+                
+                # Fallback extraction - check multiple possible keys
+                if not response_text or (isinstance(response_text, str) and response_text.strip() == ""):
+                    response_text = (
+                        resp_dict.get("answer") or 
+                        resp_dict.get("response_text") or 
+                        None
+                    )
+                    print(f"[generate-response] After fallback 1: {response_text[:50] if response_text else 'None'}...")
+                
+                # If still no answer, try agent_responses
+                if not response_text or (isinstance(response_text, str) and response_text.strip() == ""):
+                    agent_responses = resp_dict.get("agent_responses")
+                    if agent_responses and isinstance(agent_responses, list) and len(agent_responses) > 0:
+                        first_response = agent_responses[0]
+                        if isinstance(first_response, dict):
+                            response_text = first_response.get("message") or first_response.get("text")
+                            print(f"[generate-response] After agent_responses extraction: {response_text[:50] if response_text else 'None'}...")
+                
+                # If still no answer, try to get from final_output or crew output
+                if not response_text or (isinstance(response_text, str) and response_text.strip() == ""):
+                    # Try to extract from crew output structure
+                    if isinstance(resp_dict, dict):
+                        # Check for final_output in crew result
+                        final_output = resp_dict.get("final_output") or resp_dict.get("output")
+                        if final_output:
+                            response_text = str(final_output)
+                            print(f"[generate-response] After final_output extraction: {response_text[:50] if response_text else 'None'}...")
+                
+                # Try to get OGG file path from result
+                ogg_path = result.get("ogg_path")
+                audio_base64 = None
+                
+                # If OGG file exists, read and encode it
+                if ogg_path and os.path.exists(ogg_path):
+                    try:
+                        with open(ogg_path, "rb") as f:
+                            audio_bytes = f.read()
+                            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                            print(f"[generate-response] Loaded OGG file from: {ogg_path}")
+                    except Exception as e:
+                        print(f"[generate-response] Error reading OGG file: {e}")
+                
+                # Fallback: Generate audio from response text if no OGG file
+                if not audio_base64 and response_text and text_to_speech:
+                    try:
+                        # Generate audio using TTS
+                        audio_bytes = text_to_speech(response_text)
+                        if audio_bytes:
+                            # Encode audio as base64
+                            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                            print(f"[generate-response] Generated audio using TTS")
+                    except Exception as e:
+                        print(f"[generate-response] TTS error: {e}")
+                
+                # Ensure we have a response text
+                if not response_text or response_text.strip() == "":
+                    response_text = "I'm processing your question. Please wait..."
+                
+                print(f"[generate-response] Extracted response_text: {response_text[:100] if response_text else 'None'}...")
+                print(f"[generate-response] Audio available: {bool(audio_base64)}")
+                
+                # Extract whiteboard_data from response if available
+                whiteboard_data = resp_dict.get("whiteboard_data")
+                if whiteboard_data:
+                    print(f"[generate-response] Whiteboard data found: {whiteboard_data.get('type', 'unknown') if isinstance(whiteboard_data, dict) else 'present'}")
+                
+                return {
+                    "status": "success",
+                    "transcript": user_message,  # Original user transcript
+                    "response_text": response_text,  # AI-generated response text
+                    "response_transcript": response_text,  # Transcript of what's in audio (same as response_text)
+                    "audio": audio_base64,  # base64 encoded audio bytes (OGG format)
+                    "whiteboard_data": whiteboard_data  # Whiteboard tool output JSON (for TldrawBoardEmbedded)
+                }
+        else:
+            # Fallback if agent_runner is not available
+            response_text = f"Received: {user_message}"
+            return {
+                "status": "success",
+                "transcript": user_message,  # Original user transcript
+                "response_text": response_text,  # AI-generated response text
+                "response_transcript": response_text,  # Transcript of what's in audio
+                "audio": None
+            }
+    except Exception as e:
+        print(f"[generate-response] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return error response
+        error_message = f"Error processing request: {str(e)}"
+        return {
+            "status": "error",
+            "transcript": user_message,  # Original user transcript
+            "response_text": error_message,  # Error message text
+            "response_transcript": error_message,  # Transcript of what's in audio (error message)
+            "audio": None
+        }
 
 
 # ============================================================================
@@ -1081,4 +1385,23 @@ async def websocket_audio_stream(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    # Important: This file must be run from the crewai_backend directory
+    # When uvicorn reloads, it needs to find the 'agents' module
+    # Run with: cd crewai_backend && python agents/agent.py
+    
+    # Check if we're in the right directory
+    import os
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    backend_dir = os.path.dirname(current_file_dir)
+    current_cwd = os.getcwd()
+    
+    # If not in backend_dir, warn user but try to continue
+    if os.path.basename(current_cwd) != 'crewai_backend' and current_cwd != backend_dir:
+        print(f"[WARNING] Recommended: Run from crewai_backend directory")
+        print(f"  Current dir: {current_cwd}")
+        print(f"  Expected: {backend_dir}")
+        print(f"  Run: cd crewai_backend && python agents/agent.py")
+    
+    # Pass app directly - uvicorn will handle reload
+    # This avoids import string issues
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True, reload_dirs=[backend_dir] if os.path.exists(backend_dir) else None)

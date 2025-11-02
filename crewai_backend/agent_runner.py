@@ -201,6 +201,7 @@ def run_agent(
                     "agent_responses": agent_responses,
                     "answer": main_answer,
                     "visual_suggestions": resp_dict.get("visual_suggestions"),
+                    "whiteboard_data": resp_dict.get("whiteboard_data"),  # Include whiteboard tool output
                     "execution_time": resp_dict.get("execution_time"),
                 }
 

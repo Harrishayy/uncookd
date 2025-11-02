@@ -15,6 +15,53 @@ import { Transition } from "@headlessui/react";
 import Footer from "../components/Footer";
 import useMeetingAudio from "./useMeetingAudio";
 
+// Helper function to convert whiteboard tool output to TldrawBoardEmbedded prompt
+function createWhiteboardPromptFromToolOutput(whiteboardData: any): string {
+  if (!whiteboardData || typeof whiteboardData !== 'object') {
+    return '';
+  }
+  
+  const type = whiteboardData.type || 'graph';
+  const topic = whiteboardData.description?.replace(/Graph visualization for: |Diagram visualization for: |Concept map for: |Step-by-step visual solution for: /, '') || '';
+  const instructions = whiteboardData.instructions || '';
+  const expression = whiteboardData.expression || '';
+  const specifications = whiteboardData.specifications || {};
+  
+  // Build a natural language prompt for TldrawBoardEmbedded agent
+  let prompt = `Draw a ${type}`;
+  
+  if (topic) {
+    prompt += ` showing: ${topic}`;
+  }
+  
+  if (instructions) {
+    prompt += `. ${instructions}`;
+  }
+  
+  if (expression && type === 'graph') {
+    prompt += ` Graph the equation: ${expression}`;
+  }
+  
+  // Add specifications
+  if (specifications.axes && type === 'graph') {
+    prompt += ` Include labeled x and y axes.`;
+  }
+  
+  if (specifications.grid && type === 'graph') {
+    prompt += ` Show grid lines.`;
+  }
+  
+  if (specifications.annotations) {
+    prompt += ` ${specifications.annotations}`;
+  }
+  
+  if (specifications.labels) {
+    prompt += ` Label all important parts clearly.`;
+  }
+  
+  return prompt;
+}
+
 const allUsers = [
   { name: "Thomas", avatar_url: "https://via.placeholder.com/150" },
   { name: "Tara", avatar_url: "https://via.placeholder.com/150" },
@@ -31,6 +78,7 @@ export default function Page() {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showChat, setShowChat] = useState(true);
   const [agentPrompt, setAgentPrompt] = useState<any>(null);
+  const [whiteboardData, setWhiteboardData] = useState<any>(null);
 
   const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8888";
 
@@ -81,6 +129,29 @@ export default function Page() {
             }
             if (originalTranscript) {
               console.log('[Transcript API] Original user transcript:', originalTranscript);
+            }
+            
+            // Extract and set whiteboard data if available
+            if (data.whiteboard_data) {
+              console.log('[Transcript API] Whiteboard data received:', data.whiteboard_data);
+              setWhiteboardData(data.whiteboard_data);
+              
+              // Convert whiteboard tool output to TldrawBoardEmbedded format
+              // The whiteboard_data is JSON from the tool, we need to create an agentPrompt
+              // that instructs the agent to draw based on this data
+              if (data.whiteboard_data.type) {
+                const whiteboardPrompt = createWhiteboardPromptFromToolOutput(data.whiteboard_data);
+                console.log('[Transcript API] Generated whiteboard prompt:', whiteboardPrompt);
+                if (whiteboardPrompt) {
+                  // Set prompt and show whiteboard
+                  // Use a unique prompt each time to trigger the useEffect
+                  setAgentPrompt(whiteboardPrompt + ` [${Date.now()}]`);
+                  setShowWhiteboard(true);  // Automatically show whiteboard when data is received
+                }
+              }
+            } else {
+              // Clear whiteboard data if not present
+              setWhiteboardData(null);
             }
             
             // Play audio response if available

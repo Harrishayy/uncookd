@@ -158,12 +158,18 @@ async def generate_response(body: TranscriptRequest):
                 print(f"[generate-response] Extracted response_text: {response_text[:100] if response_text else 'None'}...")
                 print(f"[generate-response] Audio available: {bool(audio_base64)}")
                 
+                # Extract whiteboard_data from response if available
+                whiteboard_data = resp_dict.get("whiteboard_data")
+                if whiteboard_data:
+                    print(f"[generate-response] Whiteboard data found: {whiteboard_data.get('type', 'unknown') if isinstance(whiteboard_data, dict) else 'present'}")
+                
                 return {
                     "status": "success",
                     "transcript": user_message,  # Original user transcript
                     "response_text": response_text,  # AI-generated response text
                     "response_transcript": response_text,  # Transcript of what's in audio (same as response_text)
-                    "audio": audio_base64  # base64 encoded audio bytes (OGG format)
+                    "audio": audio_base64,  # base64 encoded audio bytes (OGG format)
+                    "whiteboard_data": whiteboard_data  # Whiteboard tool output JSON (for TldrawBoardEmbedded)
                 }
         else:
             # Fallback if agent_runner is not available
