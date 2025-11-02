@@ -8,26 +8,42 @@ Python backend service for CrewAI multi-agent operations, connected to Next.js f
 
 ```bash
 cd crewai_backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+py -3.11 -m venv venv
+venv\Scripts\activate  # On Windows
+py -3.11 -m pip install -r requirements.txt
+# Or if using uv (recommended):
+# py -3.11 -m pip install uv
+# uv sync  # Note: may fail if Rust is needed for some dependencies
 ```
 
 2. **Configure environment variables:**
 
 ```bash
 cp .env.example .env
-# Edit .env and add your API keys
+# Edit .env and add your Gemini API key
 ```
+
+   **Get your Gemini API Key:**
+   - Visit [Google AI Studio](https://ai.google.dev/)
+   - Sign in with your Google account
+   - Click "Get API Key" and create a new key
+   - Copy the key and add it to your `.env` file:
+     ```
+     GEMINI_API_KEY=your_api_key_here
+     ```
+
+   **Note:** The backend uses Google's official `google-generativeai` SDK with a minimal LangChain wrapper (`langchain-google-genai`) for CrewAI compatibility. If no `GEMINI_API_KEY` is provided, CrewAI will use its default LLM provider.
 
 3. **Run the server:**
 
 # must run the server
 
 ```bash
-python main.py
+# Use Python 3.11 specifically (py defaults to a different version)
+py -3.11 server.py
 # Or with uvicorn directly:
 uvicorn agents.agent:app --reload --port 80
+py -3.11 -m uvicorn server:app --reload --port 8000
 ```
 
 The server will run on `http://localhost:8000`

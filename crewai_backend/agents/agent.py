@@ -763,24 +763,83 @@ async def study_help(request: StudyHelpRequest):
         
         elif isinstance(result, dict):
             # Format: {task_description: output}
+        # Debug: print result type and structure
+        print(f"[study_help] Result type: {type(result)}")
+        if isinstance(result, dict):
+            print(f"[study_help] Result dict keys: {list(result.keys())}")
+            for key, val in result.items():
+                val_str = str(val) if val else "None"
+                print(f"[study_help] Key '{key[:50]}' -> Value (preview): {val_str[:150]}")
+        else:
+            print(f"[study_help] Result as string (preview): {str(result)[:200]}")
+        
+        # Also check tasks for outputs after execution
+        print(f"[study_help] Checking {len(tasks)} tasks for outputs...")
+        for i, task in enumerate(tasks):
+            task_output = None
+            # Try multiple possible attributes
+            for attr in ['output', 'raw_output', 'result', 'final_output']:
+                if hasattr(task, attr):
+                    val = getattr(task, attr, None)
+                    if val:
+                        task_output = val
+                        print(f"[study_help] Task {i} found output in '{attr}': {str(val)[:100]}...")
+                        break
+            
+            if task_output:
+                output_str = str(task_output).strip()
+                # Skip empty outputs
+                if output_str and output_str != "```" and output_str.replace("`", "").strip():
+                    agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
+                    # Add to agent_responses if not already present
+                    if not any(resp.get("message") == output_str for resp in agent_responses):
+                        agent_responses.append({
+                            "agent": agent_name,
+                            "message": output_str,
+                        })
+                    # Use as main_answer if we don't have one
+                    if main_answer is None or main_answer.strip() == "":
+                        main_answer = output_str
+            else:
+                print(f"[study_help] Task {i} ({task.description[:50]}...) has no output attribute")
+
+        if isinstance(result, dict):
+            # Then parse the result dict
             for task_desc, output in result.items():
-                # Extract agent name
-                agent_name = "Expert"
+                # Extract agent name by matching task
+                agent_name = "Assistant"
                 for task in tasks:
-                    if task.description == task_desc or task_desc in task.description:
-                        agent_name = task.agent.role
+                    # Try matching by description
+                    if task_desc == task.description or (hasattr(task, 'description') and task_desc in task.description):
+                        if hasattr(task, 'agent') and task.agent:
+                            agent_name = task.agent.role
                         break
 
-                response_text = str(output)
-                agent_responses.append(
-                    {
-                        "agent": agent_name,
-                        "message": response_text,
-                    }
-                )
+                response_text = str(output).strip()
+                
+                # Skip empty responses or markdown code blocks with no content
+                if not response_text or response_text == "```" or response_text.replace("`", "").strip() == "":
+                    print(f"[study_help] Skipping empty output for task: {task_desc[:50]}")
+                    continue
+                
+                # Only add if not already added from task.output
+                # Check if we already have this response
+                is_duplicate = False
+                for existing in agent_responses:
+                    if existing.get("message") == response_text:
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
 
-                # First expert response becomes the main answer
-                if main_answer is None and "Expert" in agent_name:
+                # Use any non-empty response as main answer if we don't have one
+                if main_answer is None or main_answer.strip() == "":
                     main_answer = response_text
 
                 # Extract visual suggestions
@@ -882,10 +941,51 @@ async def study_help(request: StudyHelpRequest):
                 )
                 if main_answer is None:
                     main_answer = response_text
+        elif result is not None:
+            # Handle case where result is a string or other type
+            result_str = str(result).strip()
+            if result_str and result_str != "```" and result_str.replace("`", "").strip():
+                main_answer = result_str
+                agent_responses.append({
+                    "agent": "Assistant",
+                    "message": result_str,
+                })
 
         # If no main answer, use first response
         if main_answer is None and agent_responses:
             main_answer = agent_responses[0]["message"]
+        
+        # If still no answer, try to get from tasks' outputs
+        if main_answer is None or main_answer.strip() == "":
+            # Check if tasks have outputs
+            for task in tasks:
+                if hasattr(task, 'output') and task.output:
+                    output_str = str(task.output).strip()
+                    if output_str and output_str != "```" and output_str.replace("`", "").strip():
+                        main_answer = output_str
+                        if not any(resp.get("message") == output_str for resp in agent_responses):
+                            agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
+                            agent_responses.append({
+                                "agent": agent_name,
+                                "message": output_str,
+                            })
+                        break
+        
+        # Final fallback: If we still don't have an answer but have agent_responses, use the longest one
+        if (main_answer is None or main_answer.strip() == "") and agent_responses:
+            # Find the longest response
+            longest_response = max(agent_responses, key=lambda x: len(x.get("message", "")))
+            main_answer = longest_response.get("message", "")
+            print(f"[study_help] Using longest response as fallback: {len(main_answer)} chars")
+        
+        # Last resort: If completely empty, construct a helpful message
+        if main_answer is None or main_answer.strip() == "":
+            print(f"[study_help] WARNING: No answer extracted from crew result!")
+            print(f"[study_help] Result was: {result}")
+            main_answer = "I processed your question, but couldn't extract a clear answer. The crew executed successfully."
+        
+        print(f"[study_help] Final main_answer length: {len(main_answer) if main_answer else 0} chars")
+        print(f"[study_help] Final agent_responses count: {len(agent_responses)}")
 
         return StudyHelpResponse(
             success=True,

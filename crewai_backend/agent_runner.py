@@ -154,10 +154,31 @@ def run_agent(
         )
         # Await the async endpoint
         import asyncio
+        import concurrent.futures
 
         try:
-            # Run the async study_help and capture the response
-            resp = asyncio.run(study_help(req))
+            # Check if there's a running event loop (from FastAPI async context)
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in an async context, we can't use asyncio.run()
+                # Run the async function in a new thread with its own event loop
+                def run_in_thread():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(study_help(req))
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_in_thread)
+                    resp = future.result(timeout=300)  # 5 minute timeout
+            except RuntimeError:
+                # No running loop, safe to use asyncio.run()
+                resp = asyncio.run(study_help(req))
+            except Exception as e:
+                print(f"[agent_runner] Error running async study_help: {e}")
+                raise
 
             # resp should be a StudyHelpResponse Pydantic model
             answer = None
@@ -186,6 +207,34 @@ def run_agent(
                 # Include error if present
                 if not success and resp_dict.get("error"):
                     json_output["error"] = resp_dict.get("error")
+                
+                # Debug: print response structure
+                print(f"[agent_runner] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}")
+                if isinstance(resp_dict, dict):
+                    print(f"[agent_runner] Response has 'answer': {resp_dict.get('answer')}")
+                    print(f"[agent_runner] Response has 'agent_responses': {resp_dict.get('agent_responses')}")
+                
+                answer = _extract_answer_from_response(resp_dict)
+                
+                # If answer is None, try direct extraction from StudyHelpResponse structure
+                if not answer:
+                    answer = resp_dict.get("answer")
+                    if not answer and resp_dict.get("agent_responses"):
+                        # Get first agent response message
+                        agent_responses = resp_dict.get("agent_responses")
+                        if isinstance(agent_responses, list) and len(agent_responses) > 0:
+                            first_response = agent_responses[0]
+                            if isinstance(first_response, dict):
+                                answer = first_response.get("message")
+                
+                # If still no answer, try to get from any string value in response
+                if not answer and isinstance(resp_dict, dict):
+                    # Look for final_output or any string value
+                    for key in ["final_output", "output", "result"]:
+                        val = resp_dict.get(key)
+                        if val:
+                            answer = str(val)
+                            break
 
                 # Save JSON output for debugging / audit
                 fd, json_path = tempfile.mkstemp(suffix=".json")
