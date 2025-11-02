@@ -463,10 +463,11 @@ def create_discussion_task(
         {context_str}
         
         Provide a thoughtful, conversational response that contributes meaningfully to the discussion.
+        Keep your response concise (under 300 words) to maintain engagement.
         If you're a moderator, guide the conversation. If you're an expert, provide insights.
         If you're a challenger, ask critical questions. If you're a student, ask questions and share thoughts.""",
         agent=agent,
-        expected_output="A conversational response that contributes to the discussion, potentially including whiteboard suggestions",
+        expected_output="A concise conversational response (under 300 words) that contributes to the discussion, potentially including whiteboard suggestions",
         tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 
@@ -495,7 +496,7 @@ def create_debate_task(
         Make your arguments clear, evidence-based, and conversational.
         Reference the whiteboard if visual aids would strengthen your position.""",
         agent=agent,
-        expected_output="A persuasive argument or counterargument presented in a conversational debate format",
+        expected_output="A concise persuasive argument or counterargument (under 300 words) presented in a conversational debate format",
         tools=[],  # always a list
     )
 
@@ -549,9 +550,10 @@ def create_explanation_task(
         Tailor your explanation for {audience_level} level students.
         {visual_instruction}
         
-        Make your explanation clear, intuitive, and engaging.""",
+        Make your explanation clear, intuitive, and engaging.
+        Keep your response concise (under 500 words, approximately 3-4 minutes when spoken).""",
         agent=agent,
-        expected_output=f"A clear explanation of {concept} appropriate for {audience_level} students, with visual suggestions if relevant",
+        expected_output=f"A clear, concise explanation of {concept} (under 500 words, approximately 3-4 minutes when spoken) appropriate for {audience_level} students, with visual suggestions if relevant",
         tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 

@@ -28,6 +28,26 @@ The function automatically:
 from typing import Optional, Dict, Any
 import json
 import tempfile
+import sys
+import os
+
+# Add utils to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Text cleaning utility
+try:
+    from utils.text_utils import clean_text_for_tts, truncate_text
+except ImportError:
+    # Fallback if utils module not found
+    def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
+        return text if not max_length or len(text) <= max_length else text[:max_length]
+    def truncate_text(text: str, max_words: int = 500, max_chars: Optional[int] = None) -> str:
+        if max_chars and len(text) > max_chars:
+            return text[:max_chars] + '...'
+        words = text.split()
+        if len(words) > max_words:
+            return ' '.join(words[:max_words]) + '...'
+        return text
 
 # TTS helper
 try:
@@ -110,7 +130,7 @@ def run_agent(
         "help_type": help_type,
     }
     if agent:
-        payload["agent"] = agent
+        payload["preferred_agent_role"] = agent
     if extra:
         payload.update(extra)
 
@@ -130,10 +150,8 @@ def run_agent(
             subject=subject,
             help_type=help_type,
             conversation_history=None,
+            preferred_agent_role=agent,  # Pass agent as preferred_agent_role
         )
-        # Optionally pass agent if supported
-        if hasattr(req, "agent") and agent:
-            req.agent = agent
         # Await the async endpoint
         import asyncio
 
@@ -188,9 +206,14 @@ def run_agent(
                 ogg_path = None
                 played = False
                 if answer:
+                    # Clean and truncate text for TTS (max ~3000 chars = ~3-4 min speech)
+                    cleaned_answer = clean_text_for_tts(str(answer), max_length=3000)
+                    if len(cleaned_answer) != len(str(answer)):
+                        print(f"[agent_runner] Text cleaned for TTS: {len(str(answer))} -> {len(cleaned_answer)} chars")
+                    
                     if speak_text_ogg:
                         try:
-                            ogg_path, played = speak_text_ogg(answer)
+                            ogg_path, played = speak_text_ogg(cleaned_answer)
                         except Exception as e:
                             print(f"[agent_runner] speak_text_ogg failed: {e}")
                     else:
@@ -305,11 +328,17 @@ def run_agent(
 
             ogg_path = None
             played = False
-            if answer and speak_text_ogg:
-                try:
-                    ogg_path, played = speak_text_ogg(answer)
-                except Exception as e:
-                    print(f"[agent_runner] speak_text_ogg failed (http mode): {e}")
+            if answer:
+                # Clean and truncate text for TTS (max ~3000 chars = ~3-4 min speech)
+                cleaned_answer = clean_text_for_tts(str(answer), max_length=3000)
+                if len(cleaned_answer) != len(str(answer)):
+                    print(f"[agent_runner] Text cleaned for TTS: {len(str(answer))} -> {len(cleaned_answer)} chars")
+                
+                if speak_text_ogg:
+                    try:
+                        ogg_path, played = speak_text_ogg(cleaned_answer)
+                    except Exception as e:
+                        print(f"[agent_runner] speak_text_ogg failed (http mode): {e}")
 
             print(
                 f"[agent_runner] Answer: {answer}\nOGG path: {ogg_path}\nPlayed: {played}"

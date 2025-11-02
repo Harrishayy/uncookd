@@ -174,7 +174,7 @@ async def execute_agent_task(request: AgentRequest):
         task = Task(
             description=request.task,
             agent=agent,
-            expected_output="A detailed response to the task",
+            expected_output="A concise response to the task (under 200 words, approximately 1 minute when spoken)",
         )
 
         # Execute task
@@ -234,7 +234,7 @@ async def execute_crew(request: CrewRequest):
             task = Task(
                 description=task_description,
                 agent=agents[i % len(agents)],  # Distribute tasks among agents
-                expected_output="A detailed response to the task",
+                expected_output="A concise response to the task (under 200 words, approximately 1 minute when spoken)",
             )
             tasks.append(task)
 
@@ -589,65 +589,133 @@ async def study_help(request: StudyHelpRequest):
         # ========================================================================
         # STEP 3: CREATE APPROPRIATE CREW BASED ON HELP TYPE
         # ========================================================================
+        # Map agent name from run_agent args to actual agent roles
+        agent_role_map = {
+            "expert": "Problem Analyst",
+            "professor": "Socratic Mentor",
+            "challenger": "Critical Thinker",
+            "student": "Peer Student",
+            "connector": "Interdisciplinary Connector",
+        }
+        
+        # Normalize preferred_agent_role if it's a short name
+        actual_agent_role = preferred_agent_role
+        if preferred_agent_role and preferred_agent_role.lower() in agent_role_map:
+            actual_agent_role = agent_role_map[preferred_agent_role.lower()]
+        
         # Handle different types of help requests
         if help_type == "explanation":
-            # For explanations, prefer routing to a selected agent if provided,
-            # otherwise default to expert.
+            # For explanations: ONLY the specified agent runs
+            # Create crew to get access to agent creation functions
             crew = create_classroom_crew(subject=subject)
-
-            if preferred_agent_role:
-                tasks = add_user_question_flow(
-                    crew=crew,
-                    question=user_question,
-                    preferred_agent_role=preferred_agent_role,
-                    subject=subject,
-                    context=context,
-                    followups=0,
-                    include_summary=False,
-                )
-            else:
-                expert_agent = next(
-                    (a for a in crew.agents if "Expert" in a.role),
-                    crew.agents[0],
-                )
-                tasks = [
-                    create_explanation_task(
-                        concept=user_question,
-                        agent=expert_agent,
-                        audience_level="intermediate",
-                        include_visuals=None,
-                        context=context,
-                        subject=subject,
-                    )
-                ]
-
-        elif help_type == "discussion":
-            # Use limited flow: primary + at most one follow-up, no summary.
-            crew = create_classroom_crew(subject=subject)
-            tasks = add_user_question_flow(
-                crew=crew,
-                question=user_question,
-                preferred_agent_role=preferred_agent_role,
-                subject=subject,
-                context=context,
-                followups=3,
-                include_summary=False,
+            
+            # Find the specific agent to use
+            from agents.example_agents import find_agent_by_role
+            target_agent = None
+            
+            if actual_agent_role:
+                target_agent = find_agent_by_role(crew, actual_agent_role)
+            
+            # Fallback to expert if agent not found or not specified
+            if not target_agent:
+                target_agent = find_agent_by_role(crew, "Problem Analyst")
+                if not target_agent:
+                    target_agent = crew.agents[0] if crew.agents else None
+            
+            # Create crew with ONLY the target agent
+            from crewai import Crew
+            crew = Crew(
+                agents=[target_agent],
+                tasks=[],
+                verbose=True,
+                process="sequential",  # Sequential even for single agent
             )
-
-        else:  # Default to explanation
-            crew = create_classroom_crew(
-                subject=subject,
-            )
-            expert_agent = next(
-                (a for a in crew.agents if "Expert" in a.role),
-                crew.agents[0],
-            )
+            
+            # Create a single task for this agent only
             tasks = [
                 create_explanation_task(
                     concept=user_question,
-                    agent=expert_agent,
+                    agent=target_agent,
                     audience_level="intermediate",
-                    include_visuals=None,  # Auto-detect
+                    include_visuals=None,
+                    context=context,
+                    subject=subject,
+                )
+            ]
+
+        elif help_type == "discussion":
+            # For discussions: ALL agents participate sequentially
+            crew = create_classroom_crew(subject=subject)
+            
+            # Create tasks for ALL agents to participate in the discussion
+            from agents.example_agents import find_agent_by_role, create_discussion_task
+            
+            tasks = []
+            
+            # Find all available agents
+            professor = find_agent_by_role(crew, "Socratic Mentor")
+            expert = find_agent_by_role(crew, "Problem Analyst")
+            challenger = find_agent_by_role(crew, "Critical Thinker")
+            student = find_agent_by_role(crew, "Peer Student")
+            connector = find_agent_by_role(crew, "Interdisciplinary Connector")
+            
+            # Order agents: Start with primary if specified, then others
+            agent_order = []
+            
+            # Primary agent (if specified) goes first
+            if actual_agent_role:
+                primary = find_agent_by_role(crew, actual_agent_role)
+                if primary:
+                    agent_order.append(primary)
+            
+            # Add all other agents in a logical order
+            for agent in [professor, expert, challenger, student, connector]:
+                if agent and agent not in agent_order:
+                    agent_order.append(agent)
+            
+            # If no primary specified, default order: professor, expert, challenger, student, connector
+            if not agent_order:
+                agent_order = [a for a in [professor, expert, challenger, student, connector] if a]
+            
+            # Create discussion tasks for each agent sequentially
+            for agent in agent_order:
+                tasks.append(
+                    create_discussion_task(
+                        topic=user_question,
+                        agent=agent,
+                        context=context,
+                        whiteboard_aware=None,
+                        subject=subject,
+                    )
+                )
+            
+            # Ensure sequential process to avoid overlap (tasks run one after another)
+            crew.process = "sequential"
+
+        else:  # Default to explanation
+            # Default: single agent explanation
+            crew = create_classroom_crew(subject=subject)
+            
+            from agents.example_agents import find_agent_by_role
+            target_agent = find_agent_by_role(crew, "Problem Analyst")
+            if not target_agent:
+                target_agent = crew.agents[0] if crew.agents else None
+            
+            # Create crew with ONLY the target agent
+            from crewai import Crew
+            crew = Crew(
+                agents=[target_agent],
+                tasks=[],
+                verbose=True,
+                process="sequential",
+            )
+            
+            tasks = [
+                create_explanation_task(
+                    concept=user_question,
+                    agent=target_agent,
+                    audience_level="intermediate",
+                    include_visuals=None,
                     context=context,
                     subject=subject,
                 )
