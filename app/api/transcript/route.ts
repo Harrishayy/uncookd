@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
       response_text: data.response_text || data.response_transcript, // AI-generated response text
       response_transcript: data.response_transcript || data.response_text, // Transcript of what's in audio
       audio: audioUrl, // base64 encoded audio or null
+      whiteboard_data: data.whiteboard_data || null, // Whiteboard tool output JSON (for TldrawBoardEmbedded)
     });
     } catch (error: any) {
     console.error('[Transcript API] Error:', error);

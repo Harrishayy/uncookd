@@ -14,5 +14,8 @@ dependencies = [
     "google-genai>=1.2.0",
     "google-generativeai>=0.8.0",
     "langchain-google-genai>=2.0.0",
+    "elevenlabs>=2.0.0",
+    "pydub>=0.25.0",
+    "setuptools>=65.0.0",
 ]
 

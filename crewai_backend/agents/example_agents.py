@@ -429,7 +429,7 @@ def create_discussion_task(
 
     # Check if agent is the professor/teacher (Socratic Mentor)
     is_professor = agent and "Socratic Mentor" in (agent.role or "")
-    
+
     # Only attach whiteboard tools if whiteboard is needed AND agent is the professor
     task_tools = (
         [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
@@ -519,7 +519,7 @@ def create_explanation_task(
 
     # Check if agent is the professor/teacher (Socratic Mentor)
     is_professor = agent and "Socratic Mentor" in (agent.role or "")
-    
+
     # Only attach whiteboard tools if visuals are needed AND agent is the professor
     task_tools = (
         [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
