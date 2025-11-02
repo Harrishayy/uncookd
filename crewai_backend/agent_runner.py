@@ -153,7 +153,34 @@ def run_agent(
             try:
                 # Pydantic model -> dict
                 resp_dict = resp.dict() if hasattr(resp, "dict") else dict(resp)
+                
+                # Debug: print response structure
+                print(f"[agent_runner] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}")
+                if isinstance(resp_dict, dict):
+                    print(f"[agent_runner] Response has 'answer': {resp_dict.get('answer')}")
+                    print(f"[agent_runner] Response has 'agent_responses': {resp_dict.get('agent_responses')}")
+                
                 answer = _extract_answer_from_response(resp_dict)
+                
+                # If answer is None, try direct extraction from StudyHelpResponse structure
+                if not answer:
+                    answer = resp_dict.get("answer")
+                    if not answer and resp_dict.get("agent_responses"):
+                        # Get first agent response message
+                        agent_responses = resp_dict.get("agent_responses")
+                        if isinstance(agent_responses, list) and len(agent_responses) > 0:
+                            first_response = agent_responses[0]
+                            if isinstance(first_response, dict):
+                                answer = first_response.get("message")
+                
+                # If still no answer, try to get from any string value in response
+                if not answer and isinstance(resp_dict, dict):
+                    # Look for final_output or any string value
+                    for key in ["final_output", "output", "result"]:
+                        val = resp_dict.get(key)
+                        if val:
+                            answer = str(val)
+                            break
 
                 # Save JSON output for debugging / audit
                 fd, json_path = tempfile.mkstemp(suffix=".json")

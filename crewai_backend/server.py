@@ -80,31 +80,90 @@ async def generate_response(body: TranscriptRequest):
             
             if result and result.get("response"):
                 # Extract answer from response
-                if _extract_answer_from_response:
-                    response_text = _extract_answer_from_response(result["response"])
-                else:
-                    # Fallback extraction
-                    resp_dict = result["response"]
-                    response_text = resp_dict.get("answer") or resp_dict.get("response_text") or user_message
+                resp_dict = result["response"]
                 
-                # Generate audio from response text
+                # Debug: print response structure
+                print(f"[generate-response] Response dict keys: {list(resp_dict.keys()) if isinstance(resp_dict, dict) else 'Not a dict'}")
+                if isinstance(resp_dict, dict):
+                    print(f"[generate-response] Has 'answer': {resp_dict.get('answer') is not None}")
+                    print(f"[generate-response] Has 'agent_responses': {resp_dict.get('agent_responses') is not None}")
+                    if resp_dict.get('agent_responses'):
+                        print(f"[generate-response] agent_responses count: {len(resp_dict.get('agent_responses', []))}")
+                
+                response_text = None
+                
+                # Try extraction function first
+                if _extract_answer_from_response:
+                    response_text = _extract_answer_from_response(resp_dict)
+                    print(f"[generate-response] After extraction function: {response_text[:50] if response_text else 'None'}...")
+                
+                # Fallback extraction - check multiple possible keys
+                if not response_text or (isinstance(response_text, str) and response_text.strip() == ""):
+                    response_text = (
+                        resp_dict.get("answer") or 
+                        resp_dict.get("response_text") or 
+                        None
+                    )
+                    print(f"[generate-response] After fallback 1: {response_text[:50] if response_text else 'None'}...")
+                
+                # If still no answer, try agent_responses
+                if not response_text or (isinstance(response_text, str) and response_text.strip() == ""):
+                    agent_responses = resp_dict.get("agent_responses")
+                    if agent_responses and isinstance(agent_responses, list) and len(agent_responses) > 0:
+                        first_response = agent_responses[0]
+                        if isinstance(first_response, dict):
+                            response_text = first_response.get("message") or first_response.get("text")
+                            print(f"[generate-response] After agent_responses extraction: {response_text[:50] if response_text else 'None'}...")
+                
+                # If still no answer, try to get from final_output or crew output
+                if not response_text or (isinstance(response_text, str) and response_text.strip() == ""):
+                    # Try to extract from crew output structure
+                    if isinstance(resp_dict, dict):
+                        # Check for final_output in crew result
+                        final_output = resp_dict.get("final_output") or resp_dict.get("output")
+                        if final_output:
+                            response_text = str(final_output)
+                            print(f"[generate-response] After final_output extraction: {response_text[:50] if response_text else 'None'}...")
+                
+                # Try to get OGG file path from result
+                ogg_path = result.get("ogg_path")
                 audio_base64 = None
-                if response_text and text_to_speech:
+                
+                # If OGG file exists, read and encode it
+                if ogg_path and os.path.exists(ogg_path):
+                    try:
+                        with open(ogg_path, "rb") as f:
+                            audio_bytes = f.read()
+                            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                            print(f"[generate-response] Loaded OGG file from: {ogg_path}")
+                    except Exception as e:
+                        print(f"[generate-response] Error reading OGG file: {e}")
+                
+                # Fallback: Generate audio from response text if no OGG file
+                if not audio_base64 and response_text and text_to_speech:
                     try:
                         # Generate audio using TTS
                         audio_bytes = text_to_speech(response_text)
                         if audio_bytes:
                             # Encode audio as base64
                             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                            print(f"[generate-response] Generated audio using TTS")
                     except Exception as e:
                         print(f"[generate-response] TTS error: {e}")
+                
+                # Ensure we have a response text
+                if not response_text or response_text.strip() == "":
+                    response_text = "I'm processing your question. Please wait..."
+                
+                print(f"[generate-response] Extracted response_text: {response_text[:100] if response_text else 'None'}...")
+                print(f"[generate-response] Audio available: {bool(audio_base64)}")
                 
                 return {
                     "status": "success",
                     "transcript": user_message,  # Original user transcript
-                    "response_text": response_text or "Processing...",  # AI-generated response text
-                    "response_transcript": response_text or "Processing...",  # Transcript of what's in audio (same as response_text)
-                    "audio": audio_base64  # base64 encoded audio bytes
+                    "response_text": response_text,  # AI-generated response text
+                    "response_transcript": response_text,  # Transcript of what's in audio (same as response_text)
+                    "audio": audio_base64  # base64 encoded audio bytes (OGG format)
                 }
         else:
             # Fallback if agent_runner is not available

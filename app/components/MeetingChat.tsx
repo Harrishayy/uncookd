@@ -112,22 +112,34 @@ export default function MeetingChat({
 
         setMessages((prev) => [...prev, assistantMessage]);
 
-        // Play audio if available
+        // Play audio if available (OGG format)
         if (data.audio) {
           try {
+            console.log("[MeetingChat] Received audio data, decoding...");
             const audioBytes = Uint8Array.from(atob(data.audio), (c) => c.charCodeAt(0));
-            const audioBlob = new Blob([audioBytes], { type: "audio/mpeg" });
+            // OGG files from ElevenLabs are typically audio/ogg or audio/opus
+            const audioBlob = new Blob([audioBytes], { type: "audio/ogg; codecs=opus" });
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
+            
+            console.log("[MeetingChat] Playing audio response...");
             audio.play().catch((err) => {
               console.error("[MeetingChat] Error playing audio:", err);
             });
+            
             audio.onended = () => {
               URL.revokeObjectURL(audioUrl);
+              console.log("[MeetingChat] Audio playback completed");
+            };
+            
+            audio.onerror = (err) => {
+              console.error("[MeetingChat] Audio playback error:", err);
             };
           } catch (audioError) {
             console.error("[MeetingChat] Error processing audio:", audioError);
           }
+        } else {
+          console.log("[MeetingChat] No audio data received");
         }
       } else {
         // Add error message
