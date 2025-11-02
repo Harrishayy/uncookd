@@ -291,8 +291,10 @@ def create_professor_agent(
         (like the Analyst or Thinker) to provide different perspectives, and then 
         you turn back to the user and ask, 'What do you think about that?'
         
-        When a visual aid is needed, you will ask the Domain Analyst to 
-        'show us' by calling the `Whiteboard_Visual_Tool`.""",
+        As the teacher, you are the ONLY agent with access to the whiteboard tool.
+        When a visual aid is needed to help explain a concept, you will use the 
+        `generate_whiteboard_visual` tool to create visual representations on the whiteboard.
+        Other agents can suggest what should be on the whiteboard, but only you can actually change it.""",
         verbose=True,
         allow_delegation=True,  # Can delegate tasks to the Analyst or Thinker
     )
@@ -319,10 +321,11 @@ def create_subject_expert_agent(
         What do we know first?' or 'What's our first step?'
         
         You excel at breaking down problems, organizing information, and thinking aloud.
-        You are the primary agent responsible for creating visual aids. When the 
-        discussion involves a plottable equation or a diagrammable concept 
-        (e.g., 'solving y=x^2-4'), you MUST use the `Whiteboard_Visual_Tool` 
-        to plot the graph and mark the roots on the communal whiteboard.""",
+        When the discussion involves a plottable equation or a diagrammable concept 
+        (e.g., 'solving y=x^2-4'), you can suggest what should be visualized, but 
+        you do NOT have access to the whiteboard tool. Only the professor/teacher 
+        can actually change the whiteboard. If you think a visual would help, 
+        describe what should be shown and suggest the professor add it to the whiteboard.""",
         verbose=True,
         allow_delegation=False,  # Focuses on its task
     )
@@ -418,27 +421,38 @@ def create_discussion_task(
 ) -> Task:
     """
     Create a discussion task for an agent to participate in.
-    Whiteboard tool is included only if relevant.
+    Whiteboard tool is included only if relevant AND agent is the professor/teacher.
     """
     # Auto-determine if whiteboard would be helpful
     if whiteboard_aware is None:
         whiteboard_aware = should_use_whiteboard(topic, context, subject)
 
-    # Conditionally attach whiteboard tools (standard and flexible wrapper)
+    # Check if agent is the professor/teacher (Socratic Mentor)
+    is_professor = agent and "Socratic Mentor" in (agent.role or "")
+    
+    # Only attach whiteboard tools if whiteboard is needed AND agent is the professor
     task_tools = (
         [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
-        if whiteboard_aware
+        if (whiteboard_aware and is_professor)
         else []
     )
 
     whiteboard_instruction = ""
     if whiteboard_aware:
-        whiteboard_instruction = """
+        if is_professor:
+            whiteboard_instruction = """
+        As the teacher, you have access to the whiteboard tool. If relevant, use the generate_whiteboard_visual 
+        tool to create visual representations on the whiteboard to aid understanding.
+        Reference any existing whiteboard content when making your points.
+        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), 
+        e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
+        If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
+        else:
+            whiteboard_instruction = """
         If relevant, suggest what could be visualized on the whiteboard to aid understanding.
         Reference any existing whiteboard content when making your points.
-        Use the generate_whiteboard_visual tool if a visual representation would help.
-        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
-        If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
+        However, you do NOT have access to change the whiteboard - only the professor/teacher can modify it.
+        Describe what should be shown and suggest the professor add it if needed."""
 
     context_str = f"\nContext: {context}" if context else ""
 
@@ -496,27 +510,38 @@ def create_explanation_task(
 ) -> Task:
     """
     Create a task for an agent to explain a concept.
-    Whiteboard tool is included only if relevant.
+    Whiteboard tool is included only if relevant AND agent is the professor/teacher.
     """
     # Auto-determine if visuals would be helpful
     if include_visuals is None:
         include_visuals = should_use_whiteboard(concept, context, subject)
 
-    # Conditionally attach whiteboard tools (standard and flexible wrapper)
+    # Check if agent is the professor/teacher (Socratic Mentor)
+    is_professor = agent and "Socratic Mentor" in (agent.role or "")
+    
+    # Only attach whiteboard tools if visuals are needed AND agent is the professor
     task_tools = (
         [WhiteboardVisualTool(), WhiteboardVisualToolFlexible()]
-        if include_visuals
+        if (include_visuals and is_professor)
         else []
     )
 
     visual_instruction = ""
     if include_visuals:
-        visual_instruction = """
-        Describe what should be displayed on the whiteboard to help visualize this concept
+        if is_professor:
+            visual_instruction = """
+        As the teacher, you have access to the whiteboard tool. Use the generate_whiteboard_visual 
+        tool to create visual representations on the whiteboard to help visualize this concept
         (e.g., graphs, diagrams, step-by-step solutions).
-        Use the generate_whiteboard_visual tool if a visual representation would help.
-        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
+        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), 
+        e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
         If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
+        else:
+            visual_instruction = """
+        You can suggest what should be displayed on the whiteboard to help visualize this concept
+        (e.g., graphs, diagrams, step-by-step solutions), but you do NOT have access to change the whiteboard.
+        Only the professor/teacher can actually modify it. Describe what should be shown and suggest 
+        the professor add it to the whiteboard if needed."""
 
     return Task(
         description=f"""Explain the concept: {concept}
