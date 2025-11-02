@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../components/Header";
 import AddUserModal from "../components/AddUserModal";
@@ -11,11 +11,13 @@ import MeetingArea from "../components/MeetingArea";
 import MeetingChat from "../components/MeetingChat";
 import MeetingToolbar from "../components/MeetingToolbar";
 import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/solid";
+import { StopIcon } from "@heroicons/react/24/solid";
 import { Transition } from "@headlessui/react";
 import Footer from "../components/Footer";
 import useMeetingAudio from "./useMeetingAudio";
 
 // Helper function to convert whiteboard tool output to TldrawBoardEmbedded prompt
+// Concise, action-focused prompt (max 2 sentences)
 function createWhiteboardPromptFromToolOutput(whiteboardData: any): string {
   if (!whiteboardData || typeof whiteboardData !== 'object') {
     return '';
@@ -27,39 +29,53 @@ function createWhiteboardPromptFromToolOutput(whiteboardData: any): string {
   const expression = whiteboardData.expression || '';
   const specifications = whiteboardData.specifications || {};
   
-  // Build a natural language prompt for TldrawBoardEmbedded agent
-  let prompt = `Draw a ${type}`;
+  // Extract essential action verb and target
+  let action = '';
+  let target = '';
   
-  if (topic) {
-    prompt += ` showing: ${topic}`;
+  if (type === 'graph' && expression) {
+    action = 'Graph';
+    target = expression;
+  } else if (type === 'diagram') {
+    action = 'Draw diagram';
+    target = topic || instructions || 'diagram';
+  } else if (type === 'concept_map') {
+    action = 'Create concept map';
+    target = topic || instructions || 'concepts';
+  } else if (type === 'step_by_step') {
+    action = 'Draw steps';
+    target = topic || instructions || 'solution';
+  } else {
+    action = `Draw ${type}`;
+    target = topic || instructions || '';
   }
   
-  if (instructions) {
-    prompt += `. ${instructions}`;
-  }
+  // Build first sentence: action + target
+  const sentence1 = `${action} ${target}`.trim();
   
-  if (expression && type === 'graph') {
-    prompt += ` Graph the equation: ${expression}`;
-  }
-  
-  // Add specifications
+  // Build second sentence: specifications only (if any)
+  const specParts: string[] = [];
   if (specifications.axes && type === 'graph') {
-    prompt += ` Include labeled x and y axes.`;
+    specParts.push('labeled axes');
   }
-  
   if (specifications.grid && type === 'graph') {
-    prompt += ` Show grid lines.`;
+    specParts.push('grid');
+  }
+  if (specifications.labels && type !== 'graph') {
+    specParts.push('labels');
   }
   
-  if (specifications.annotations) {
-    prompt += ` ${specifications.annotations}`;
+  let sentence2 = '';
+  if (specParts.length > 0) {
+    sentence2 = `Include ${specParts.join(', ')}.`;
   }
   
-  if (specifications.labels) {
-    prompt += ` Label all important parts clearly.`;
+  // Combine: max 2 sentences
+  if (sentence2) {
+    return `${sentence1}. ${sentence2}`;
+  } else {
+    return sentence1;
   }
-  
-  return prompt;
 }
 
 const allUsers = [
@@ -79,6 +95,34 @@ export default function Page() {
   const [showChat, setShowChat] = useState(true);
   const [agentPrompt, setAgentPrompt] = useState<any>(null);
   const [whiteboardData, setWhiteboardData] = useState<any>(null);
+  
+  // State to track agent processing and audio playback
+  const [isAgentProcessing, setIsAgentProcessing] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  
+  // Track if meeting is active - set to false when leaving to prevent new agent requests
+  const [isMeetingActive, setIsMeetingActive] = useState(true);
+  const whiteboardAgentRef = useRef<{ dispose?: () => void } | null>(null);
+  
+  // Track muted state in a ref so it's always current in callbacks
+  const mutedRef = useRef<boolean>(false);
+
+  // Handle stop playback for meeting page audio
+  const handleStopPlayback = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+      if (audioPlayerRef.current.src) {
+        URL.revokeObjectURL(audioPlayerRef.current.src);
+      }
+      audioPlayerRef.current = null;
+    }
+    // Reset both playing and processing states to allow chat to work again
+    setIsAudioPlaying(false);
+    setIsAgentProcessing(false);
+    console.log('[Meeting Page] Audio playback stopped by user - chat re-enabled');
+  };
 
   const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8888";
 
@@ -96,6 +140,26 @@ export default function Page() {
     startTranscriptionForStream,
     } = useMeetingAudio(SIGNALING_URL, {
     onTranscription: async (entry) => {
+      // CRITICAL CHECKS FIRST - Don't even log if conditions aren't met
+      // If microphone is muted, don't process anything
+      if (mutedRef.current) {
+        // Silently ignore - microphone is muted, agents cannot hear
+        return;
+      }
+      
+      // If meeting is no longer active (user left), don't process
+      if (!isMeetingActive) {
+        // Silently ignore - meeting ended
+        return;
+      }
+      
+      // If no users are in the meeting, don't process - no agents should talk
+      if (!meetingUsers || meetingUsers.length === 0) {
+        // Silently ignore - no agents available to respond
+        return;
+      }
+      
+      // Only log and process if we pass all checks
       const timestamp = new Date(entry.timestamp).toLocaleTimeString();
       console.log(
         `[Transcript ${entry.isFinal ? '✓ FINAL' : '⏳ INTERIM'}] ${timestamp}:`,
@@ -104,8 +168,23 @@ export default function Page() {
       console.log('Full entry:', entry);
       
       // Send transcript to backend and receive audio response
+      // Only process if agents are not currently processing or playing audio
       if (entry.isFinal && entry.text.trim()) {
+        
+        // Check if agent is currently processing or audio is playing
+        if (isAgentProcessing || isAudioPlaying) {
+          console.log('[Transcript API] Agent is busy, ignoring input:', entry.text);
+          return; // Ignore this input
+        }
+        
         try {
+          // Set processing state
+          setIsAgentProcessing(true);
+          
+          // Determine who is speaking (for now, assume current user is speaking)
+          // In a real implementation, you might identify speakers from audio analysis
+          const speakingUser = "You"; // TODO: Implement speaker identification
+          
           const response = await fetch('/api/transcript', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -113,6 +192,8 @@ export default function Page() {
               transcript: entry.text,
               timestamp: entry.timestamp,
               isFinal: entry.isFinal,
+              speaking_user: speakingUser,
+              meeting_users: meetingUsers, // Include all users in the meeting
             }),
           });
 
@@ -132,23 +213,90 @@ export default function Page() {
             }
             
             // Extract and set whiteboard data if available
+            let shouldShowWhiteboard = false;
+            let whiteboardPromptText = null;
+            
             if (data.whiteboard_data) {
               console.log('[Transcript API] Whiteboard data received:', data.whiteboard_data);
               setWhiteboardData(data.whiteboard_data);
               
-              // Convert whiteboard tool output to TldrawBoardEmbedded format
-              // The whiteboard_data is JSON from the tool, we need to create an agentPrompt
-              // that instructs the agent to draw based on this data
-              if (data.whiteboard_data.type) {
+              // Use wrapped prompt if backend provided it, otherwise generate one
+              if (data.whiteboard_data.wrapped_prompt) {
+                // Backend already wrapped the tool output in a robust prompt
+                whiteboardPromptText = data.whiteboard_data.wrapped_prompt;
+                shouldShowWhiteboard = true;
+                console.log('[Transcript API] Using backend-wrapped prompt (length:', data.whiteboard_data.wrapped_prompt.length, ')');
+              } else if (data.whiteboard_data.type) {
+                // Fallback: Generate prompt on frontend
                 const whiteboardPrompt = createWhiteboardPromptFromToolOutput(data.whiteboard_data);
-                console.log('[Transcript API] Generated whiteboard prompt:', whiteboardPrompt);
+                console.log('[Transcript API] Generated whiteboard prompt from tool:', whiteboardPrompt);
                 if (whiteboardPrompt) {
-                  // Set prompt and show whiteboard
-                  // Use a unique prompt each time to trigger the useEffect
-                  setAgentPrompt(whiteboardPrompt + ` [${Date.now()}]`);
-                  setShowWhiteboard(true);  // Automatically show whiteboard when data is received
+                  whiteboardPromptText = whiteboardPrompt;
+                  shouldShowWhiteboard = true;
                 }
               }
+            }
+            
+            // Also check agent responses for professor/expert responses to send to whiteboard
+            if (data.agent_responses && Array.isArray(data.agent_responses)) {
+              console.log('[Transcript API] Processing agent responses for whiteboard:', data.agent_responses.length);
+              
+              // Find professor or expert responses
+              for (const agentResp of data.agent_responses) {
+                if (agentResp && typeof agentResp === 'object') {
+                  const agentName = agentResp.agent || '';
+                  const agentMessage = agentResp.message || '';
+                  
+                  // Check if this is professor or expert (Problem Analyst)
+                  const isProfessor = agentName.toLowerCase().includes('socratic') || 
+                                    agentName.toLowerCase().includes('mentor') ||
+                                    agentName.toLowerCase().includes('professor');
+                  const isExpert = agentName.toLowerCase().includes('problem analyst') ||
+                                 agentName.toLowerCase().includes('expert') ||
+                                 agentName.toLowerCase().includes('analyst');
+                  
+                  if ((isProfessor || isExpert) && agentMessage) {
+                    console.log(`[Transcript API] Found ${agentName} response, sending to whiteboard`);
+                    // Extract first 2 sentences from agent message for concise action-focused prompt
+                    const sentences = agentMessage.split(/[.!?]+/).filter((s: string) => s.trim().length > 0).slice(0, 2);
+                    const conciseMessage = sentences.join('. ').trim() + (sentences.length > 0 && !sentences[0].endsWith('.') ? '.' : '');
+                    whiteboardPromptText = conciseMessage;
+                    shouldShowWhiteboard = true;
+                    // Break after first professor/expert response
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Set whiteboard prompt if we found one
+            if (whiteboardPromptText) {
+              console.log('[Transcript API] Original whiteboard prompt:', whiteboardPromptText.substring(0, 100));
+              
+              // Transform prompt through LLM to ensure it's drawing-focused
+              try {
+                const transformResponse = await fetch('/api/whiteboard/transform-prompt', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ prompt: whiteboardPromptText }),
+                });
+                
+                if (transformResponse.ok) {
+                  const transformData = await transformResponse.json();
+                  if (transformData.transformed_prompt) {
+                    whiteboardPromptText = transformData.transformed_prompt;
+                    console.log('[Transcript API] Transformed whiteboard prompt:', whiteboardPromptText.substring(0, 100));
+                  }
+                } else {
+                  console.warn('[Transcript API] Prompt transformation failed, using original');
+                }
+              } catch (transformError) {
+                console.error('[Transcript API] Error transforming prompt:', transformError);
+                // Continue with original prompt
+              }
+              
+              setAgentPrompt(whiteboardPromptText);
+              setShowWhiteboard(true);
             } else {
               // Clear whiteboard data if not present
               setWhiteboardData(null);
@@ -157,6 +305,15 @@ export default function Page() {
             // Play audio response if available
             if (data.audio) {
               try {
+                // Stop any currently playing audio
+                if (audioPlayerRef.current) {
+                  audioPlayerRef.current.pause();
+                  audioPlayerRef.current.currentTime = 0;
+                  if (audioPlayerRef.current.src) {
+                    URL.revokeObjectURL(audioPlayerRef.current.src);
+                  }
+                }
+                
                 // Decode base64 audio
                 const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
                 const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
@@ -164,27 +321,53 @@ export default function Page() {
                 
                 // Create and play audio element
                 const audio = new Audio(audioUrl);
+                audioPlayerRef.current = audio;
+                
+                // Set audio playing state
+                setIsAudioPlaying(true);
                 
                 // Log that we're playing audio with its transcript
                 console.log('[Transcript API] Playing audio response:', responseTranscript);
                 
                 audio.play().catch(err => {
                   console.error('[Transcript API] Error playing audio:', err);
+                  setIsAudioPlaying(false);
+                  setIsAgentProcessing(false);
                 });
                 
-                // Clean up URL after playback
+                // Clean up and reset states after playback completes
                 audio.onended = () => {
                   URL.revokeObjectURL(audioUrl);
+                  audioPlayerRef.current = null;
+                  setIsAudioPlaying(false);
+                  setIsAgentProcessing(false);
+                  console.log('[Transcript API] Audio playback completed, ready for new input');
+                };
+                
+                audio.onerror = () => {
+                  console.error('[Transcript API] Audio playback error');
+                  setIsAudioPlaying(false);
+                  setIsAgentProcessing(false);
+                  if (audioPlayerRef.current && audioPlayerRef.current.src) {
+                    URL.revokeObjectURL(audioPlayerRef.current.src);
+                  }
+                  audioPlayerRef.current = null;
                 };
               } catch (audioError) {
                 console.error('[Transcript API] Error processing audio:', audioError);
+                setIsAudioPlaying(false);
+                setIsAgentProcessing(false);
               }
             } else if (responseTranscript) {
               // Even if no audio, log the response transcript
               console.log('[Transcript API] No audio, but transcript available:', responseTranscript);
+              // Reset processing state if no audio
+              setIsAgentProcessing(false);
             }
           } else {
             console.error('[Transcript API] Request failed:', response.status);
+            // Reset processing state on error
+            setIsAgentProcessing(false);
             // Try to get error details
             try {
               const errorData = await response.json();
@@ -195,10 +378,17 @@ export default function Page() {
           }
         } catch (error) {
           console.error('[Transcript API] Error sending transcript:', error);
+          // Reset processing state on error
+          setIsAgentProcessing(false);
         }
       }
     },
   });
+  
+  // Keep muted ref in sync with muted state for use in callbacks
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
 
   const handleAddUser = (user: { name: string; avatar_url: string }) => {
     setMeetingUsers((prev) => {
@@ -296,6 +486,19 @@ export default function Page() {
             </div>
           </div>
 
+          {/* Stop Playback Button - shown when audio is playing */}
+          {isAudioPlaying && (
+            <div className="absolute top-4 right-4 z-30">
+              <button
+                onClick={handleStopPlayback}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors shadow-lg"
+              >
+                <StopIcon className="h-4 w-4" />
+                <span className="text-sm">Stop Playback</span>
+              </button>
+            </div>
+          )}
+
           {/* Meeting Area */}
           <MeetingArea
             currentUser={currentUser}
@@ -315,7 +518,16 @@ export default function Page() {
             onChat={() => setShowChat(!showChat)}
             showChat={showChat}
             onLeave={() => {
+              // Stop any audio playback
+              handleStopPlayback();
+              // Cleanup audio connections
               cleanup();
+              // Stop any agent processing
+              setIsAgentProcessing(false);
+              // Clear whiteboard and agent prompts
+              setAgentPrompt(null);
+              setWhiteboardData(null);
+              // Navigate away
               router.push("/");
             }}
             onSettings={() => setShowConfig(true)}
@@ -334,6 +546,34 @@ export default function Page() {
                     console.log('[MeetingChat] User sent message:', message);
                   }}
                   currentUser={currentUser}
+                  meetingUsers={meetingUsers}
+                  onAgentResponse={async (agentName, message) => {
+                    console.log(`[MeetingChat] Agent ${agentName} response for whiteboard:`, message.substring(0, 100));
+                    
+                    // Transform prompt through LLM to ensure it's drawing-focused
+                    let transformedMessage = message;
+                    try {
+                      const transformResponse = await fetch('/api/whiteboard/transform-prompt', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: message }),
+                      });
+                      
+                      if (transformResponse.ok) {
+                        const transformData = await transformResponse.json();
+                        if (transformData.transformed_prompt) {
+                          transformedMessage = transformData.transformed_prompt;
+                          console.log('[MeetingChat] Transformed whiteboard prompt:', transformedMessage.substring(0, 100));
+                        }
+                      }
+                    } catch (transformError) {
+                      console.error('[MeetingChat] Error transforming prompt:', transformError);
+                      // Continue with original message
+                    }
+                    
+                    setAgentPrompt(transformedMessage);
+                    setShowWhiteboard(true);
+                  }}
                 />
               </div>
             </div>
@@ -363,6 +603,23 @@ export default function Page() {
                   onAgentComplete={() => {}}
                   onAgentError={() => {}}
                   onPromptSubmit={() => {}}
+                  onAgentReady={(agent) => {
+                    // Store agent reference for cleanup
+                    if (agent) {
+                      whiteboardAgentRef.current = {
+                        dispose: () => {
+                          try {
+                            agent.dispose();
+                            console.log('[Meeting Page] Whiteboard agent disposed via ref');
+                          } catch (err) {
+                            console.error('[Meeting Page] Error disposing agent via ref:', err);
+                          }
+                        }
+                      };
+                    } else {
+                      whiteboardAgentRef.current = null;
+                    }
+                  }}
                 />
               </div>
             </div>

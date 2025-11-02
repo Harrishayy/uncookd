@@ -297,6 +297,8 @@ def create_professor_agent(
         Other agents can suggest what should be on the whiteboard, but only you can actually change it.""",
         verbose=True,
         allow_delegation=True,  # Can delegate tasks to the Analyst or Thinker
+        max_iter=3,  # Limit iterations to prevent infinite loops
+        max_retry_limit=2,  # Limit retries on format errors
     )
 
 
@@ -328,6 +330,8 @@ def create_subject_expert_agent(
         describe what should be shown and suggest the professor add it to the whiteboard.""",
         verbose=True,
         allow_delegation=False,  # Focuses on its task
+        max_iter=3,  # Limit iterations to prevent infinite loops
+        max_retry_limit=2,  # Limit retries on format errors
     )
 
 
@@ -356,6 +360,8 @@ def create_devils_advocate_agent(challenge_level: str = "moderate"):
         or 'What if we look at it from this angle...?'""",
         verbose=True,
         allow_delegation=False,
+        max_iter=3,  # Limit iterations to prevent infinite loops
+        max_retry_limit=2,  # Limit retries on format errors
     )
 
 
@@ -378,6 +384,8 @@ def create_peer_student_agent(background: str = "curious learner"):
         or 'I'm not sure I follow your logic there.'""",
         verbose=True,
         allow_delegation=False,
+        max_iter=3,  # Limit iterations to prevent infinite loops
+        max_retry_limit=2,  # Limit retries on format errors
     )
 
 
@@ -400,6 +408,8 @@ def create_interdisciplinary_connector_agent():
         perspective.""",
         verbose=True,
         allow_delegation=False,
+        max_iter=3,  # Limit iterations to prevent infinite loops
+        max_retry_limit=2,  # Limit retries on format errors
     )
 
 
@@ -596,6 +606,7 @@ def create_whiteboard_content_task(
 def create_classroom_crew(
     subject: str = "mathematics",
     agents_config: Optional[Dict[str, Any]] = None,
+    available_agent_roles: Optional[List[str]] = None,
 ) -> Crew:
     """
     Create a virtual classroom crew with multiple educational agents
@@ -607,53 +618,57 @@ def create_classroom_crew(
             - expert_level: "beginner" | "intermediate" | "advanced"
             - challenge_level: "mild" | "moderate" | "aggressive"
             - student_background: e.g., "curious learner"
+        available_agent_roles: List of agent roles to include (e.g., ["professor", "subject_expert"]).
+                               If None, includes all agents. Only agents whose users are in the meeting.
 
     Note: Visual learning is handled via tools - agents automatically use
     generate_whiteboard_visual tool when they need visual explanations.
     """
     config = agents_config or {}
+    available_roles = available_agent_roles or ["professor", "subject_expert", "devils_advocate", "peer_student"]
 
-    # Create agents (they have access to whiteboard tool when needed)
-    professor = create_professor_agent(
-        subject=subject, personality=config.get("professor_personality", "encouraging")
-    )
+    agents = []
+    professor = None
+    expert = None
+    devils_advocate = None
+    peer_student = None
 
-    expert = create_subject_expert_agent(
-        subject=subject, expertise_level=config.get("expert_level", "advanced")
-    )
+    # Only create agents that are available (their users are in the meeting)
+    if "professor" in available_roles:
+        professor = create_professor_agent(
+            subject=subject, personality=config.get("professor_personality", "encouraging")
+        )
+        agents.append(professor)
 
-    devils_advocate = create_devils_advocate_agent(
-        challenge_level=config.get("challenge_level", "moderate")
-    )
+    if "subject_expert" in available_roles:
+        expert = create_subject_expert_agent(
+            subject=subject, expertise_level=config.get("expert_level", "advanced")
+        )
+        agents.append(expert)
 
-    peer_student = create_peer_student_agent(
-        background=config.get("student_background", "curious learner")
-    )
+    if "devils_advocate" in available_roles:
+        devils_advocate = create_devils_advocate_agent(
+            challenge_level=config.get("challenge_level", "moderate")
+        )
+        agents.append(devils_advocate)
 
+    if "peer_student" in available_roles:
+        peer_student = create_peer_student_agent(
+            background=config.get("student_background", "curious learner")
+        )
+        agents.append(peer_student)
+
+    # Connector is always available (no user assigned)
     connector = create_interdisciplinary_connector_agent()
+    agents.append(connector)
 
-    agents = [professor, expert, devils_advocate, peer_student, connector]
-
-    # Create initial discussion tasks (these can be customized per session)
-    # whiteboard_aware and include_visuals are auto-determined
-    tasks = [
-        create_discussion_task(
-            topic=f"Introduction to key concepts in {subject}",
-            agent=professor,
-            whiteboard_aware=None,  # Auto-detect
-            subject=subject,
-        ),
-        create_explanation_task(
-            concept=f"Fundamental principles of {subject}",
-            agent=expert,
-            include_visuals=None,  # Auto-detect
-            subject=subject,
-        ),
-    ]
+    # Tasks should be created from user input only (no default placeholder tasks)
+    # Tasks will be added by add_user_question_flow() or directly when processing user questions
+    tasks = []
 
     crew = Crew(
         agents=agents,
-        tasks=tasks,
+        tasks=tasks,  # Start with empty tasks - user questions will populate them
         verbose=True,
         process="sequential",  # Sequential process for more conversational flow
     )

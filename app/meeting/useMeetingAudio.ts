@@ -43,14 +43,23 @@ export default function useMeetingAudio(
     audioContextRef.current = audioContext;
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8; // Smooth audio level detection
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let lastAvg = 0;
     audioLevelCheckInterval.current = setInterval(() => {
       analyser.getByteFrequencyData(dataArray);
       const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      setIsSpeaking(avg > 40);
+      // Detect significant drop in dB (silence detection)
+      const dBThreshold = 40;
+      const dropThreshold = 15; // Detect if level drops by this amount
+      const isCurrentlySpeaking = avg > dBThreshold;
+      const hasSignificantDrop = lastAvg > dBThreshold && avg < (lastAvg - dropThreshold);
+      
+      setIsSpeaking(isCurrentlySpeaking || !hasSignificantDrop);
+      lastAvg = avg;
     }, 100);
   };
 

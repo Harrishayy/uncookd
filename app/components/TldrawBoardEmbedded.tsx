@@ -70,6 +70,8 @@ export interface TldrawBoardEmbeddedProps {
 	onAgentError?: (error: any) => void
 	/** Callback when a prompt is submitted from the progress panel */
 	onPromptSubmit?: (prompt: string) => void
+	/** Callback to expose agent for cleanup/disposal */
+	onAgentReady?: (agent: TldrawAgent | null) => void
 }
 
 export default function TldrawBoardEmbedded({
@@ -79,8 +81,16 @@ export default function TldrawBoardEmbedded({
 	onAgentComplete,
 	onAgentError,
 	onPromptSubmit,
+	onAgentReady,
 }: TldrawBoardEmbeddedProps) {
 	const [agent, setAgent] = useState<TldrawAgent | null>(null)
+	
+	// Expose agent to parent for cleanup
+	useEffect(() => {
+		if (onAgentReady) {
+			onAgentReady(agent)
+		}
+	}, [agent, onAgentReady])
 
 	// Custom components to visualize what the agent is doing
 	const components: TLComponents = useMemo(() => {
@@ -220,6 +230,20 @@ function BoardInner({
 		;(window as any).agent = agent
 		;(window as any).editor = editor
 	}, [agent, editor, setAgent, onAgentError])
+	
+	// Cleanup agent on unmount
+	useEffect(() => {
+		return () => {
+			if (agent) {
+				try {
+					agent.dispose()
+					console.log('[TldrawBoardEmbedded] Agent disposed on unmount')
+				} catch (err) {
+					console.error('[TldrawBoardEmbedded] Error disposing agent:', err)
+				}
+			}
+		}
+	}, [agent])
 
 	// Track whiteboard updates and send to backend
 	useEffect(() => {
@@ -290,9 +314,9 @@ function BoardInner({
 	useEffect(() => {
 		if (!agent || !agentPrompt || !editor) return
 		
-		// Create a stable key for this prompt (remove timestamp if present)
+		// Create a stable key for this prompt
 		const promptKey = typeof agentPrompt === 'string' 
-			? agentPrompt.replace(/\s*\[\d+\]\s*$/, '').trim()  // Remove timestamp suffix
+			? agentPrompt.trim()
 			: JSON.stringify(agentPrompt)
 		
 		// Skip if we've already processed this exact prompt

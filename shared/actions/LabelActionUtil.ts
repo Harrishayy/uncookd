@@ -47,10 +47,18 @@ export class LabelActionUtil extends AgentActionUtil<ILabelEvent> {
 		const shapeId = `shape:${action.shapeId}` as TLShapeId
 		const shape = editor.getShape(shapeId)
 		if (!shape) return
-		editor.updateShape({
-			id: shapeId,
-			type: shape.type,
-			props: { richText: toRichText(action.text ?? '') },
-		})
+		
+		// Only apply richText to shapes that support it (arrow, geo, note, text)
+		// Line and draw shapes don't support richText
+		const supportsRichText = ['arrow', 'geo', 'note', 'text'].includes(shape.type)
+		
+		if (supportsRichText) {
+			editor.updateShape({
+				id: shapeId,
+				type: shape.type,
+				props: { richText: toRichText(action.text ?? '') },
+			})
+		}
+		// For line and draw shapes, we can't add labels - skip silently or log a warning
 	}
 }

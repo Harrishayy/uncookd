@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
         transcript: body.transcript || body.text || '',
         timestamp: body.timestamp || Date.now(),
         isFinal: body.isFinal !== undefined ? body.isFinal : true,
+        speaking_user: body.speaking_user || null,
+        meeting_users: body.meeting_users || [],
       }),
     });
 
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
       response_transcript: data.response_transcript || data.response_text, // Transcript of what's in audio
       audio: audioUrl, // base64 encoded audio or null
       whiteboard_data: data.whiteboard_data || null, // Whiteboard tool output JSON (for TldrawBoardEmbedded)
+      agent_responses: data.agent_responses || null, // Agent responses for whiteboard prompts
     });
     } catch (error: any) {
     console.error('[Transcript API] Error:', error);

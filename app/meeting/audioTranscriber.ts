@@ -30,6 +30,12 @@ export function startLiveTranscriptionWithWebSpeech(
   recognition.lang = lang;
   recognition.interimResults = true;
   recognition.continuous = true;
+  recognition.maxAlternatives = 1;
+  
+  // Track silence period - wait for drop in audio before finalizing (closure variables)
+  let silenceTimer: NodeJS.Timeout | null = null;
+  let lastInterimText = "";
+  const SILENCE_DURATION_MS = 1500; // Wait 1.5 seconds of silence before finalizing
 
   recognition.onresult = (event: any) => {
     // Build transcript from results
@@ -42,8 +48,51 @@ export function startLiveTranscriptionWithWebSpeech(
       else interim += t;
     }
 
-    if (final.trim()) onResult(final.trim(), true);
-    else if (interim.trim()) onResult(interim.trim(), false);
+    // If we have final text, send it immediately
+    if (final.trim()) {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      lastInterimText = "";
+      onResult(final.trim(), true);
+    } 
+    // For interim results, wait for silence period before finalizing
+    else if (interim.trim() && interim !== lastInterimText) {
+      lastInterimText = interim;
+      
+      // Clear existing timer
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+      }
+      
+      // Set new timer - if no new interim results come in, finalize after silence period
+      silenceTimer = setTimeout(() => {
+        if (lastInterimText.trim()) {
+          onResult(lastInterimText.trim(), true);
+          lastInterimText = "";
+        }
+        silenceTimer = null;
+      }, SILENCE_DURATION_MS);
+      
+      // Still send interim results for live feedback
+      onResult(interim.trim(), false);
+    }
+  };
+  
+  // Cleanup timer on stop - wrap the stop method
+  const originalStop = recognition.stop.bind(recognition);
+  (recognition as any).stop = function() {
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      // Finalize any pending interim text
+      if (lastInterimText.trim()) {
+        onResult(lastInterimText.trim(), true);
+        lastInterimText = "";
+      }
+      silenceTimer = null;
+    }
+    originalStop();
   };
 
   recognition.onerror = (e: any) => {

@@ -136,6 +136,7 @@ class StudyHelpRequest(BaseModel):
     preferred_agent_role: Optional[str] = (
         None  # Optional: route question to a specific agent role
     )
+    available_agent_roles: Optional[List[str]] = None  # List of agent roles available (based on meeting users)
 
 
 class StudyHelpResponse(BaseModel):
@@ -571,10 +572,12 @@ async def study_help(request: StudyHelpRequest):
     The frontend sends a POST request like:
     POST /api/study/help
     {
-        "user_question": "How do I solve quadratic equations?",
+        "user_question": "<user's actual question from speech-to-text>",
         "subject": "mathematics",
         "help_type": "explanation"
     }
+    
+    Note: user_question should always come from user input (microphone speech-to-text or typed message).
 
     WHERE USER INPUT IS HANDLED:
     ------------------------------
@@ -629,11 +632,14 @@ async def study_help(request: StudyHelpRequest):
         if preferred_agent_role and preferred_agent_role.lower() in agent_role_map:
             actual_agent_role = agent_role_map[preferred_agent_role.lower()]
         
+        # Extract available agent roles from request (for user-based filtering)
+        available_agent_roles = request.available_agent_roles
+        
         # Handle different types of help requests
         if help_type == "explanation":
             # For explanations: ONLY the specified agent runs
             # Create crew to get access to agent creation functions
-            crew = create_classroom_crew(subject=subject)
+            crew = create_classroom_crew(subject=subject, available_agent_roles=available_agent_roles)
             
             # Find the specific agent to use
             from agents.example_agents import find_agent_by_role
@@ -671,7 +677,7 @@ async def study_help(request: StudyHelpRequest):
 
         elif help_type == "discussion":
             # For discussions: ALL agents participate sequentially
-            crew = create_classroom_crew(subject=subject)
+            crew = create_classroom_crew(subject=subject, available_agent_roles=available_agent_roles)
             
             # Create tasks for ALL agents to participate in the discussion
             from agents.example_agents import find_agent_by_role, create_discussion_task
@@ -720,7 +726,7 @@ async def study_help(request: StudyHelpRequest):
 
         else:  # Default to explanation
             # Default: single agent explanation
-            crew = create_classroom_crew(subject=subject)
+            crew = create_classroom_crew(subject=subject, available_agent_roles=available_agent_roles)
             
             from agents.example_agents import find_agent_by_role
             target_agent = find_agent_by_role(crew, "Problem Analyst")
@@ -754,7 +760,27 @@ async def study_help(request: StudyHelpRequest):
         crew.tasks = tasks
 
         # Execute - this is where agents actually process the user's input
-        result = crew.kickoff()
+        # Wrap in try-catch to handle CrewAI parsing errors gracefully
+        try:
+            result = crew.kickoff()
+        except Exception as crew_error:
+            # Check if it's a parsing/format error (common CrewAI retry loop issue)
+            error_str = str(crew_error).lower()
+            if "parsing" in error_str or "invalid format" in error_str or "retry" in error_str:
+                print(f"[study_help] CrewAI parsing/format error occurred: {crew_error}")
+                execution_time = time.time() - start_time
+                return StudyHelpResponse(
+                    success=False,
+                    answer="An error has occurred.",
+                    agent_responses=None,
+                    visual_suggestions=None,
+                    whiteboard_data=None,
+                    error="An error has occurred.",
+                    execution_time=execution_time,
+                )
+            else:
+                # Re-raise if it's a different type of error
+                raise
 
         execution_time = time.time() - start_time
 
@@ -767,6 +793,66 @@ async def study_help(request: StudyHelpRequest):
         visual_suggestions = None
         whiteboard_data = None  # Whiteboard tool output JSON
 
+        def wrap_tool_output_in_robust_prompt(tool_data: Dict[str, Any], agent_name: str = "teaching agent") -> str:
+            """
+            Wrap agent tool output in a concise, action-focused prompt (max 2 sentences).
+            """
+            if not tool_data or not isinstance(tool_data, dict):
+                return ""
+            
+            tool_type = tool_data.get("type", "visual")
+            topic = tool_data.get("description", "").replace(
+                "Graph visualization for: ", ""
+            ).replace("Diagram visualization for: ", "").replace(
+                "Concept map for: ", ""
+            ).replace("Step-by-step visual solution for: ", "") or ""
+            instructions = tool_data.get("instructions", "")
+            expression = tool_data.get("expression", "")
+            specifications = tool_data.get("specifications", {})
+            
+            # Extract essential action verb and target
+            action = ""
+            target = ""
+            
+            if tool_type == "graph" and expression:
+                action = "Graph"
+                target = expression
+            elif tool_type == "diagram":
+                action = "Draw diagram"
+                target = topic or instructions or "diagram"
+            elif tool_type == "concept_map":
+                action = "Create concept map"
+                target = topic or instructions or "concepts"
+            elif tool_type == "step_by_step":
+                action = "Draw steps"
+                target = topic or instructions or "solution"
+            else:
+                action = f"Draw {tool_type}"
+                target = topic or instructions or ""
+            
+            # Build first sentence: action + target
+            sentence1 = f"{action} {target}".strip()
+            
+            # Build second sentence: specifications only (if any)
+            spec_parts = []
+            if specifications.get("axes") and tool_type == "graph":
+                spec_parts.append("labeled axes")
+            if specifications.get("grid") and tool_type == "graph":
+                spec_parts.append("grid")
+            if specifications.get("labels") and tool_type != "graph":
+                spec_parts.append("labels")
+            
+            if spec_parts:
+                sentence2 = f"Include {', '.join(spec_parts)}."
+            else:
+                sentence2 = ""
+            
+            # Combine: max 2 sentences
+            if sentence2:
+                return f"{sentence1}. {sentence2}"
+            else:
+                return sentence1
+        
         # Helper function to extract whiteboard tool output from text
         def extract_whiteboard_tool_output(text: str) -> Optional[Dict[str, Any]]:
             """Extract whiteboard tool output JSON from agent response text."""
@@ -842,12 +928,12 @@ async def study_help(request: StudyHelpRequest):
                 agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
                 response_text = str(output)
                 
-                # Check if this is the professor/teacher agent and extract whiteboard tool output
-                if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                # Extract whiteboard tool output from any agent response
+                if whiteboard_data is None:
                     extracted = extract_whiteboard_tool_output(response_text)
                     if extracted:
                         whiteboard_data = extracted
-                        print(f"[study_help] Extracted whiteboard data from professor agent (list format)")
+                        print(f"[study_help] Extracted whiteboard data from {agent_name} (list format)")
                 
                 agent_responses.append(
                     {
@@ -887,12 +973,12 @@ async def study_help(request: StudyHelpRequest):
                     if output_str and output_str != "```" and output_str.replace("`", "").strip():
                         agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
                         
-                        # Check if this is the professor/teacher agent and extract whiteboard tool output
-                        if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                        # Extract whiteboard tool output from any task output
+                        if whiteboard_data is None:
                             extracted = extract_whiteboard_tool_output(output_str)
                             if extracted:
                                 whiteboard_data = extracted
-                                print(f"[study_help] Extracted whiteboard data from professor agent task output")
+                                print(f"[study_help] Extracted whiteboard data from {agent_name} task output")
                         
                         # Add to agent_responses if not already present
                         if not any(resp.get("message") == output_str for resp in agent_responses):
@@ -907,20 +993,47 @@ async def study_help(request: StudyHelpRequest):
                     print(f"[study_help] Task {i} ({task.description[:50]}...) has no output attribute")
                 
                 # Also check for intermediate_steps (where tool outputs might be stored)
-                if hasattr(task, 'intermediate_steps') and task.intermediate_steps:
-                    print(f"[study_help] Task {i} has intermediate_steps, checking for whiteboard tool output...")
+                if hasattr(task, 'intermediate_steps') and task.intermediate_steps and whiteboard_data is None:
+                    print(f"[study_help] Task {i} has intermediate_steps ({len(task.intermediate_steps)} steps), checking for whiteboard tool output...")
                     agent_name = task.agent.role if hasattr(task, 'agent') and task.agent else "Assistant"
-                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
-                        for step in task.intermediate_steps:
-                            # Step format: (tool_name, tool_input) or (action, observation)
-                            if isinstance(step, (list, tuple)) and len(step) >= 2:
-                                tool_output = step[1]  # Observation/result is typically second element
+                    for step_idx, step in enumerate(task.intermediate_steps):
+                        tool_name = None
+                        tool_output = None
+                        
+                        # Handle different step formats
+                        if isinstance(step, (list, tuple)) and len(step) >= 2:
+                            # Format: (action/tool_name, observation/output) or (tool_name, tool_input, output)
+                            tool_name = step[0] if len(step) > 0 else None
+                            tool_output = step[1] if len(step) > 1 else None
+                        elif isinstance(step, dict):
+                            # Format: {"tool": "...", "input": "...", "output": "..."} or {"action": "...", "observation": "..."}
+                            tool_name = step.get("tool") or step.get("action") or step.get("name")
+                            tool_output = step.get("output") or step.get("observation") or step.get("result")
+                        elif hasattr(step, 'tool'):
+                            # Object with attributes
+                            tool_name = getattr(step, 'tool', None) or getattr(step, 'action', None)
+                            tool_output = getattr(step, 'output', None) or getattr(step, 'observation', None)
+                        
+                        # Check if this is a whiteboard tool by name
+                        if tool_name:
+                            tool_name_str = str(tool_name).lower()
+                            if "whiteboard" in tool_name_str or "generate_whiteboard" in tool_name_str:
                                 if tool_output:
-                                    extracted = extract_whiteboard_tool_output(str(tool_output))
+                                    tool_output_str = str(tool_output)
+                                    extracted = extract_whiteboard_tool_output(tool_output_str)
                                     if extracted:
                                         whiteboard_data = extracted
-                                        print(f"[study_help] Extracted whiteboard data from intermediate_steps")
+                                        print(f"[study_help] Extracted whiteboard data from whiteboard tool in intermediate_steps (step {step_idx}, tool: {tool_name})")
                                         break
+                        
+                        # Also try parsing any output for whiteboard data (in case tool name isn't recognized)
+                        if tool_output and whiteboard_data is None:
+                            tool_output_str = str(tool_output)
+                            extracted = extract_whiteboard_tool_output(tool_output_str)
+                            if extracted:
+                                whiteboard_data = extracted
+                                print(f"[study_help] Extracted whiteboard data from intermediate_steps output (step {step_idx})")
+                                break
             
             # Parse the result dict
             for task_desc, output in result.items():
@@ -935,12 +1048,12 @@ async def study_help(request: StudyHelpRequest):
 
                 response_text = str(output).strip()
                 
-                # Check if this is the professor/teacher agent and extract whiteboard tool output
-                if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                # Extract whiteboard tool output from any agent response
+                if whiteboard_data is None:
                     extracted = extract_whiteboard_tool_output(response_text)
                     if extracted:
                         whiteboard_data = extracted
-                        print(f"[study_help] Extracted whiteboard data from professor agent response")
+                        print(f"[study_help] Extracted whiteboard data from {agent_name} response")
                 
                 # Skip empty responses or markdown code blocks with no content
                 if not response_text or response_text == "```" or response_text.replace("`", "").strip() == "":
@@ -989,12 +1102,12 @@ async def study_help(request: StudyHelpRequest):
                     
                     response_text = str(output)
                     
-                    # Check if this is the professor/teacher agent and extract whiteboard tool output
-                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                    # Extract whiteboard tool output from any agent response
+                    if whiteboard_data is None:
                         extracted = extract_whiteboard_tool_output(response_text)
                         if extracted:
                             whiteboard_data = extracted
-                            print(f"[study_help] Extracted whiteboard data from professor agent (tasks_output dict)")
+                            print(f"[study_help] Extracted whiteboard data from {agent_name} (tasks_output dict)")
                     
                     agent_responses.append(
                         {
@@ -1011,12 +1124,12 @@ async def study_help(request: StudyHelpRequest):
                     agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
                     response_text = str(output)
                     
-                    # Check if this is the professor/teacher agent and extract whiteboard tool output
-                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                    # Extract whiteboard tool output from any agent response
+                    if whiteboard_data is None:
                         extracted = extract_whiteboard_tool_output(response_text)
                         if extracted:
                             whiteboard_data = extracted
-                            print(f"[study_help] Extracted whiteboard data from professor agent (tasks_output list)")
+                            print(f"[study_help] Extracted whiteboard data from {agent_name} (tasks_output list)")
                     
                     agent_responses.append(
                         {
@@ -1059,12 +1172,12 @@ async def study_help(request: StudyHelpRequest):
                     agent_name = task.agent.role if hasattr(task, "agent") and task.agent else "Unknown Agent"
                     response_text = str(task_output).strip()
                     
-                    # Check if this is the professor/teacher agent and extract whiteboard tool output
-                    if "Socratic Mentor" in agent_name and whiteboard_data is None:
+                    # Extract whiteboard tool output from any task output
+                    if whiteboard_data is None:
                         extracted = extract_whiteboard_tool_output(response_text)
                         if extracted:
                             whiteboard_data = extracted
-                            print(f"[study_help] Extracted whiteboard data from professor agent (fallback task output)")
+                            print(f"[study_help] Extracted whiteboard data from {agent_name} (fallback task output)")
                     
                     agent_responses.append(
                         {
@@ -1133,6 +1246,45 @@ async def study_help(request: StudyHelpRequest):
             print(f"[study_help] Result was: {result}")
             main_answer = "I processed your question, but couldn't extract a clear answer. The crew executed successfully."
         
+        # Final fallback: If we still haven't found whiteboard data, check all collected responses
+        if whiteboard_data is None and agent_responses:
+            print(f"[study_help] Final check: Searching all {len(agent_responses)} agent responses for whiteboard data...")
+            for resp in agent_responses:
+                message = resp.get("message", "")
+                if message:
+                    extracted = extract_whiteboard_tool_output(message)
+                    if extracted:
+                        whiteboard_data = extracted
+                        print(f"[study_help] Extracted whiteboard data from final fallback check (agent: {resp.get('agent', 'Unknown')})")
+                        break
+        
+        # Also check the main_answer if we haven't found whiteboard data yet
+        if whiteboard_data is None and main_answer:
+            extracted = extract_whiteboard_tool_output(main_answer)
+            if extracted:
+                whiteboard_data = extracted
+                print(f"[study_help] Extracted whiteboard data from main_answer")
+        
+        # Wrap whiteboard tool output in robust prompt if present
+        if whiteboard_data:
+            # Find the agent name that generated this tool output
+            tool_agent_name = "teaching agent"
+            for resp in agent_responses:
+                if resp.get("message") and isinstance(resp.get("message"), str):
+                    # Check if this response likely contains the tool output
+                    try:
+                        if "type" in whiteboard_data or "render_engine" in whiteboard_data:
+                            tool_agent_name = resp.get("agent", "teaching agent")
+                            break
+                    except:
+                        pass
+            
+            wrapped_whiteboard_prompt = wrap_tool_output_in_robust_prompt(whiteboard_data, tool_agent_name)
+            # Store the wrapped prompt in whiteboard_data for frontend use
+            if isinstance(whiteboard_data, dict):
+                whiteboard_data["wrapped_prompt"] = wrapped_whiteboard_prompt
+                print(f"[study_help] Wrapped whiteboard tool output in robust prompt (length: {len(wrapped_whiteboard_prompt)})")
+        
         print(f"[study_help] Final main_answer length: {len(main_answer) if main_answer else 0} chars")
         print(f"[study_help] Final agent_responses count: {len(agent_responses)}")
         print(f"[study_help] Whiteboard data extracted: {whiteboard_data is not None}")
@@ -1164,6 +1316,92 @@ class TranscriptRequest(BaseModel):
     transcript: str
     timestamp: Optional[int] = None
     isFinal: Optional[bool] = True
+    speaking_user: Optional[str] = None  # User name who is speaking
+    meeting_users: Optional[List[str]] = None  # List of users currently in the meeting
+
+
+class WhiteboardUpdateRequest(BaseModel):
+    boardId: str
+    update: Dict[str, Any]  # Tldraw board update data
+
+
+class WhiteboardPromptTransformRequest(BaseModel):
+    prompt: str  # Original prompt to transform
+
+
+# Agent-to-user mapping
+AGENT_USER_MAPPING = {
+    "professor": "Thomas",
+    "subject_expert": "Tara", 
+    "devils_advocate": "Ethan",
+    "peer_student": "Harrish",
+}
+
+# Reverse mapping: user -> agent role
+USER_AGENT_MAPPING = {v: k for k, v in AGENT_USER_MAPPING.items()}
+
+# Agent-to-voice mapping for ElevenLabs TTS
+# Voice IDs from ElevenLabs API
+AGENT_VOICE_MAPPING = {
+    # Thomas (Professor/Socratic Mentor) -> Male voice
+    "Thomas": "pNInz6obpgDQGcFmaJgB",  # Adam - male voice
+    "professor": "pNInz6obpgDQGcFmaJgB",  # Adam - male voice
+    "Socratic Mentor": "pNInz6obpgDQGcFmaJgB",  # Adam - male voice
+    
+    # Tara (Subject Expert/Problem Analyst) -> Female voice
+    "Tara": "EXAVITQu4vr4xnSDxMaL",  # Bella - female voice
+    "subject_expert": "EXAVITQu4vr4xnSDxMaL",  # Bella - female voice
+    "Problem Analyst": "EXAVITQu4vr4xnSDxMaL",  # Bella - female voice
+    
+    # Ethan (Devil's Advocate/Critical Thinker) -> Male voice
+    "Ethan": "TxGEqnHWrfWFTfGW9XjX",  # Josh - male voice
+    "devils_advocate": "TxGEqnHWrfWFTfGW9XjX",  # Josh - male voice
+    "Critical Thinker": "TxGEqnHWrfWFTfGW9XjX",  # Josh - male voice
+}
+
+def get_voice_id_for_agent(agent_name: Optional[str], agent_responses: Optional[List[Dict[str, Any]]] = None) -> str:
+    """
+    Get the appropriate ElevenLabs voice_id for an agent.
+    
+    Args:
+        agent_name: Name or role of the agent
+        agent_responses: List of agent responses to determine primary speaker
+    
+    Returns:
+        voice_id string for ElevenLabs TTS
+    """
+    # Default voice (Rachel - female)
+    default_voice = "21m00Tcm4TlvDq8ikWAM"
+    
+    # If agent_responses provided, try to find the primary agent
+    if agent_responses and len(agent_responses) > 0:
+        # Use the first agent response to determine voice
+        first_response = agent_responses[0]
+        if isinstance(first_response, dict):
+            agent_name = first_response.get("agent", agent_name)
+    
+    if not agent_name:
+        return default_voice
+    
+    agent_name_lower = agent_name.lower()
+    
+    # Check for exact matches first
+    if agent_name in AGENT_VOICE_MAPPING:
+        return AGENT_VOICE_MAPPING[agent_name]
+    
+    # Check for partial matches in role names
+    for key, voice_id in AGENT_VOICE_MAPPING.items():
+        if key.lower() in agent_name_lower or agent_name_lower in key.lower():
+            return voice_id
+    
+    # Check for user names
+    if agent_name in USER_AGENT_MAPPING:
+        agent_role = USER_AGENT_MAPPING[agent_name]
+        if agent_role in AGENT_VOICE_MAPPING:
+            return AGENT_VOICE_MAPPING[agent_role]
+    
+    # Fallback to default
+    return default_voice
 
 
 @app.post("/api/generate-response")
@@ -1172,12 +1410,59 @@ async def generate_response(body: TranscriptRequest):
     Receives transcript from frontend and returns audio response.
     This endpoint processes speech transcripts and generates audio responses.
     Used by the meeting page transcript API.
+    
+    Now supports user-specific agents - only agents whose assigned users are in the meeting will respond.
     """
     user_message = body.transcript
+    speaking_user = body.speaking_user
+    meeting_users = body.meeting_users or []
+    
+    # IMPORTANT: If no users are in the meeting, don't process - no agents should respond
+    if not meeting_users or len(meeting_users) == 0:
+        print(f"[generate-response] No users in meeting - returning without processing (agents should not respond)")
+        return {
+            "status": "success",
+            "transcript": user_message,
+            "response_text": "No one is in the meeting. Please add users to the meeting first.",
+            "response_transcript": "No one is in the meeting. Please add users to the meeting first.",
+            "audio": None,
+            "whiteboard_data": None,
+            "agent_responses": None
+        }
+    
+    # Filter agents based on meeting users
+    available_agent_roles = []
+    for user in meeting_users:
+        if user in USER_AGENT_MAPPING:
+            agent_role = USER_AGENT_MAPPING[user]
+            available_agent_roles.append(agent_role)
+            print(f"[generate-response] User {user} is in meeting -> Agent {agent_role} is available")
+    
+    # If no agents are available (no mapped users in meeting), don't process
+    if not available_agent_roles:
+        print(f"[generate-response] No agents available - no mapped users in meeting")
+        return {
+            "status": "success",
+            "transcript": user_message,
+            "response_text": "No agents are available in this meeting. Please add users to activate agents.",
+            "response_transcript": "No agents are available in this meeting. Please add users to activate agents.",
+            "audio": None,
+            "whiteboard_data": None,
+            "agent_responses": None
+        }
+    
+    print(f"[generate-response] Speaking user: {speaking_user}, Meeting users: {meeting_users}, Available agents: {available_agent_roles}")
     
     try:
         # Use agent_runner to process the transcript
         if run_agent:
+            # Prepare extra context for agent filtering
+            extra_context = {
+                "meeting_users": meeting_users,
+                "speaking_user": speaking_user,
+                "available_agent_roles": available_agent_roles,
+            }
+            
             # Use direct mode to call the agent
             result = run_agent(
                 mode="direct",
@@ -1185,6 +1470,7 @@ async def generate_response(body: TranscriptRequest):
                 subject="general",  # Can be extracted from context if needed
                 help_type="explanation",
                 agent=None,  # Auto-select appropriate agent
+                extra=extra_context,
             )
             
             if result and result.get("response"):
@@ -1234,6 +1520,10 @@ async def generate_response(body: TranscriptRequest):
                             response_text = str(final_output)
                             print(f"[generate-response] After final_output extraction: {response_text[:50] if response_text else 'None'}...")
                 
+                # Extract whiteboard_data and agent_responses from response if available (before TTS)
+                whiteboard_data = resp_dict.get("whiteboard_data")
+                agent_responses = resp_dict.get("agent_responses", [])
+                
                 # Try to get OGG file path from result
                 ogg_path = result.get("ogg_path")
                 audio_base64 = None
@@ -1251,12 +1541,16 @@ async def generate_response(body: TranscriptRequest):
                 # Fallback: Generate audio from response text if no OGG file
                 if not audio_base64 and response_text and text_to_speech:
                     try:
-                        # Generate audio using TTS
-                        audio_bytes = text_to_speech(response_text)
+                        # Determine which agent is speaking to use appropriate voice
+                        voice_id = get_voice_id_for_agent(None, agent_responses)
+                        print(f"[generate-response] Using voice_id: {voice_id} for agent responses")
+                        
+                        # Generate audio using TTS with agent-specific voice
+                        audio_bytes = text_to_speech(response_text, voice_id=voice_id)
                         if audio_bytes:
                             # Encode audio as base64
                             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-                            print(f"[generate-response] Generated audio using TTS")
+                            print(f"[generate-response] Generated audio using TTS with voice_id: {voice_id}")
                     except Exception as e:
                         print(f"[generate-response] TTS error: {e}")
                 
@@ -1267,10 +1561,15 @@ async def generate_response(body: TranscriptRequest):
                 print(f"[generate-response] Extracted response_text: {response_text[:100] if response_text else 'None'}...")
                 print(f"[generate-response] Audio available: {bool(audio_base64)}")
                 
-                # Extract whiteboard_data from response if available
-                whiteboard_data = resp_dict.get("whiteboard_data")
                 if whiteboard_data:
                     print(f"[generate-response] Whiteboard data found: {whiteboard_data.get('type', 'unknown') if isinstance(whiteboard_data, dict) else 'present'}")
+                
+                if agent_responses:
+                    print(f"[generate-response] Agent responses found: {len(agent_responses)} responses")
+                    for i, agent_resp in enumerate(agent_responses):
+                        if isinstance(agent_resp, dict):
+                            agent_name = agent_resp.get("agent", "Unknown")
+                            print(f"[generate-response] Agent {i}: {agent_name}")
                 
                 return {
                     "status": "success",
@@ -1278,7 +1577,8 @@ async def generate_response(body: TranscriptRequest):
                     "response_text": response_text,  # AI-generated response text
                     "response_transcript": response_text,  # Transcript of what's in audio (same as response_text)
                     "audio": audio_base64,  # base64 encoded audio bytes (OGG format)
-                    "whiteboard_data": whiteboard_data  # Whiteboard tool output JSON (for TldrawBoardEmbedded)
+                    "whiteboard_data": whiteboard_data,  # Whiteboard tool output JSON (for TldrawBoardEmbedded)
+                    "agent_responses": agent_responses  # List of agent responses for whiteboard prompts
                 }
         else:
             # Fallback if agent_runner is not available
@@ -1293,15 +1593,185 @@ async def generate_response(body: TranscriptRequest):
     except Exception as e:
         print(f"[generate-response] Error: {e}")
         import traceback
-        traceback.print_exc()
-        # Return error response
-        error_message = f"Error processing request: {str(e)}"
+        # Only log full traceback for non-parsing errors
+        error_str = str(e).lower()
+        if "parsing" not in error_str and "invalid format" not in error_str and "retry" not in error_str:
+            traceback.print_exc()
+        
+        # Return simple error message
         return {
             "status": "error",
             "transcript": user_message,  # Original user transcript
-            "response_text": error_message,  # Error message text
-            "response_transcript": error_message,  # Transcript of what's in audio (error message)
+            "response_text": "An error has occurred.",  # Simple error message
+            "response_transcript": "An error has occurred.",  # Transcript of what's in audio (error message)
             "audio": None
+        }
+
+
+# ============================================================================
+# WHITEBOARD UPDATE ENDPOINT
+# ============================================================================
+
+@app.post("/api/whiteboard-update")
+async def whiteboard_update(body: WhiteboardUpdateRequest):
+    """
+    Receives whiteboard updates from frontend.
+    This can be used to sync whiteboard state or trigger AI responses.
+    """
+    board_id = body.boardId
+    update_data = body.update
+    
+    try:
+        # Extract information from update data
+        shapes_count = update_data.get("shapesCount", 0)
+        timestamp = update_data.get("timestamp")
+        
+        # Optionally process with AI if significant changes detected
+        instructions = []
+        
+        # For now, just acknowledge the update
+        # TODO: Add AI processing to generate drawing instructions based on context
+        # This could analyze the whiteboard state and suggest improvements or generate
+        # additional content based on what's already drawn
+        
+        return {
+            "status": "success",
+            "boardId": board_id,
+            "update": update_data,
+            "instructions": instructions  # AI-generated drawing instructions if any
+        }
+    except Exception as e:
+        print(f"[whiteboard-update] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "boardId": board_id,
+            "update": update_data,
+            "instructions": [],
+            "error": str(e)
+        }
+
+
+@app.post("/api/whiteboard/transform-prompt")
+async def transform_whiteboard_prompt(body: WhiteboardPromptTransformRequest):
+    """
+    Transform a prompt to be specialized for drawing and labeling on a whiteboard.
+    Uses LLM to ensure the prompt focuses on visual representation rather than text.
+    """
+    original_prompt = body.prompt
+    
+    if not original_prompt or not original_prompt.strip():
+        return {
+            "status": "error",
+            "transformed_prompt": original_prompt,
+            "error": "Empty prompt provided"
+        }
+    
+    try:
+        # Use Gemini 2.0 Flash to transform the prompt
+        import os
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        
+        if not gemini_api_key:
+            print("[transform-prompt] No GEMINI_API_KEY found, returning original prompt")
+            return {
+                "status": "success",
+                "transformed_prompt": original_prompt,
+                "note": "LLM transformation skipped - no API key"
+            }
+        
+        # Use Google Gemini via langchain-google-genai
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            
+            # Try gemini-2.0-flash-exp first, fallback to gemini-2.0-flash or gemini-1.5-flash
+            model_name = "gemini-2.0-flash-exp"  # Gemini 2.0 Flash experimental
+            try:
+                llm = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    temperature=0.3,
+                    google_api_key=gemini_api_key,
+                    max_output_tokens=500,  # Limit output to keep it concise (max 2 sentences)
+                )
+                # Test if model is available by creating it
+                _ = llm.model_name
+            except Exception as e:
+                print(f"[transform-prompt] Model {model_name} not available, trying gemini-2.0-flash: {e}")
+                try:
+                    model_name = "gemini-2.0-flash"
+                    llm = ChatGoogleGenerativeAI(
+                        model=model_name,
+                        temperature=0.3,
+                        google_api_key=gemini_api_key,
+                        max_output_tokens=500,
+                    )
+                except Exception:
+                    # Final fallback to gemini-1.5-flash
+                    model_name = "gemini-1.5-flash"
+                    llm = ChatGoogleGenerativeAI(
+                        model=model_name,
+                        temperature=0.3,
+                        google_api_key=gemini_api_key,
+                        max_output_tokens=500,
+                    )
+            
+            print(f"[transform-prompt] Using model: {model_name}")
+        except ImportError:
+            print("[transform-prompt] langchain_google_genai not available, returning original")
+            return {
+                "status": "success",
+                "transformed_prompt": original_prompt,
+                "note": "LLM transformation skipped - langchain_google_genai not available"
+            }
+        
+        # Create transformation prompt - include ALL details while optimizing for drawing
+        transformation_prompt = f"""Transform the following prompt to be specialized for drawing and visual representation on a whiteboard. 
+
+CRITICAL REQUIREMENTS:
+- Include ALL details from the original prompt/question - do not omit any information
+- Focus on drawing shapes, graphs, diagrams, visual elements
+- Focus on labeling elements clearly with all relevant details
+- Use visual positioning and layout instructions
+- Transform text explanations into visual instructions with labels, arrows, and visual indicators
+- Maintain all specific details, numbers, equations, relationships from the original prompt
+- Keep the prompt clear and actionable for drawing, but include all necessary information
+
+Original prompt: {original_prompt}
+
+Transform this into a drawing instruction that includes ALL details from the original prompt, optimized for visual representation. Return ONLY the transformed prompt, nothing else."""
+
+        # Get transformed prompt from LLM
+        response = llm.invoke(transformation_prompt)
+        transformed_prompt = response.content.strip()
+        
+        # No sentence limit - keep all details, just ensure it's properly formatted
+        if transformed_prompt:
+            # Clean up any extra whitespace but preserve all content
+            import re
+            transformed_prompt = re.sub(r'\s+', ' ', transformed_prompt).strip()
+        
+        # Fallback to original if transformation failed
+        if not transformed_prompt or len(transformed_prompt) < 5:
+            transformed_prompt = original_prompt
+        
+        print(f"[transform-prompt] Original: {original_prompt[:150]}")
+        print(f"[transform-prompt] Transformed: {transformed_prompt[:200]}")
+        
+        return {
+            "status": "success",
+            "transformed_prompt": transformed_prompt
+        }
+        
+    except Exception as e:
+        print(f"[transform-prompt] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return original prompt on error
+        return {
+            "status": "error",
+            "transformed_prompt": original_prompt,
+            "error": str(e)
         }
 
 

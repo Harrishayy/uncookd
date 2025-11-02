@@ -58,7 +58,7 @@ POST http://localhost:8000/api/study/help
 ### Request Body
 ```json
 {
-  "user_question": "How do I solve quadratic equations?",
+  "user_question": "<user's question from speech-to-text or chat>",
   "subject": "mathematics",
   "help_type": "explanation",
   "conversation_history": [
@@ -150,7 +150,7 @@ console.log(data.answer);
 ### "explanation" (Default)
 - Uses: Expert + Visual Assistant
 - Best for: Direct questions needing clear explanations
-- Example: "How do I solve quadratic equations?"
+- Example: User's question from speech-to-text or chat input
 
 ### "discussion"
 - Uses: Professor + Expert + Devil's Advocate

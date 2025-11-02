@@ -8,8 +8,8 @@ from typing import Optional
 
 def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
     """
-    Clean text to remove symbols, markdown, and other non-speech elements
-    that would make TTS speak nonsensical things.
+    Clean text to remove markdown formatting while preserving mathematical symbols.
+    Removes formatting markers like asterisks for bold/italic, but keeps math operators.
     
     Args:
         text: Raw text from LLM
@@ -21,14 +21,23 @@ def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
     if not text:
         return ""
     
-    # Remove markdown formatting
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # Bold
-    text = re.sub(r'\*(.+?)\*', r'\1', text)  # Italic
-    text = re.sub(r'__(.+?)__', r'\1', text)  # Underline
-    text = re.sub(r'_(.+?)_', r'\1', text)  # Italic alt
-    text = re.sub(r'`(.+?)`', r'\1', text)  # Inline code
-    text = re.sub(r'```[\s\S]*?```', '', text)  # Code blocks
-    text = re.sub(r'#{1,6}\s*(.+?)', r'\1', text)  # Headers
+    # Remove markdown formatting (but preserve mathematical usage)
+    # Bold: **text** -> text
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    # Italic: *text* -> text (but be careful - might be multiplication in math context)
+    # Only remove italic markers if they're clearly formatting (surrounding text, not between numbers/variables)
+    text = re.sub(r'(?<![a-zA-Z0-9])\*([^*\s]+?)\*(?![a-zA-Z0-9])', r'\1', text)
+    # Underline: __text__ -> text
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    # Italic alt: _text_ -> text (but preserve underscores in variable names like x_1)
+    # Only remove if it's clearly formatting (surrounding a word, not part of a variable)
+    text = re.sub(r'(?<![a-zA-Z0-9])_([^_\s]+?)_(?![a-zA-Z0-9])', r'\1', text)
+    # Inline code: `code` -> code
+    text = re.sub(r'`([^`]+?)`', r'\1', text)
+    # Code blocks: ```code``` -> (removed)
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    # Headers: # Header -> Header
+    text = re.sub(r'#{1,6}\s+(.+?)(?:\n|$)', r'\1 ', text, flags=re.MULTILINE)
     
     # Remove URLs
     text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
@@ -39,17 +48,25 @@ def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
     # Remove markdown links but keep the link text
     text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
     
-    # Remove LaTeX/math expressions (keep simple ones readable)
-    text = re.sub(r'\$([^$]+)\$', r'\1', text)  # Inline math
-    text = re.sub(r'\$\$[\s\S]*?\$\$', '', text)  # Block math
+    # Remove LaTeX delimiters but keep the math content
+    text = re.sub(r'\$([^$]+)\$', r'\1', text)  # Inline math: $x^2$ -> x^2
+    text = re.sub(r'\$\$([\s\S]*?)\$\$', r'\1', text)  # Block math: keep content
     
-    # Remove special symbols that don't read well
-    # Keep punctuation that's readable: . , ! ? : ; - ( ) " '
-    # Remove: [] {} | \ / ~ ^ _ ` @ # $ % & * < > = + etc.
-    text = re.sub(r'[\[\]{}|\\/~^`@#$%&*<>=\+]', '', text)
+    # Remove visual formatting markers that don't make sense in speech
+    # Remove standalone formatting symbols, but preserve mathematical operators
+    # Remove: | (vertical bar for markdown tables/separators), \ (escape), ~ (strikethrough), ^ (when used for formatting)
+    # Keep: +, -, =, <, >, (, ), [, ] (for math), * (when clearly multiplication), etc.
+    text = re.sub(r'[|\\~]', ' ', text)  # Remove formatting-only symbols
     
-    # Replace common math/technical symbols with words
-    text = text.replace('=', ' equals ')
+    # Remove multiple standalone asterisks used for formatting (like *** for horizontal rules)
+    text = re.sub(r'\*{3,}', ' ', text)  # Three or more asterisks in a row
+    text = re.sub(r'\s+\*\s+', ' ', text)  # Standalone asterisk surrounded by spaces (likely formatting)
+    
+    # Remove hash symbols used for markdown headers (already handled, but catch any remaining)
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    
+    # Replace common math/technical symbols with spoken words (but keep the symbols readable)
+    # These are mathematical symbols that should be spoken, not raw symbols
     text = text.replace('≠', ' not equal to ')
     text = text.replace('≈', ' approximately ')
     text = text.replace('≤', ' less than or equal to ')
@@ -64,6 +81,12 @@ def clean_text_for_tts(text: str, max_length: Optional[int] = None) -> str:
     text = text.replace('∫', ' integral of ')
     text = text.replace('π', ' pi ')
     text = text.replace('∞', ' infinity ')
+    text = text.replace('∂', ' partial derivative ')
+    text = text.replace('∆', ' delta ')
+    text = text.replace('∇', ' nabla ')
+    
+    # Keep basic mathematical operators and symbols: +, -, =, <, >, (, ), [, ], *, ^
+    # These are preserved as-is for TTS to handle naturally
     
     # Clean up multiple spaces
     text = re.sub(r'\s+', ' ', text)

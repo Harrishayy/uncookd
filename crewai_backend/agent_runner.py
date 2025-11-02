@@ -145,12 +145,18 @@ def run_agent(
         except ImportError:
             print("[agent_runner] Could not import FastAPI app for direct mode.")
             return
+        # Extract available_agent_roles from extra if provided
+        available_agent_roles = None
+        if extra and isinstance(extra, dict):
+            available_agent_roles = extra.get("available_agent_roles")
+        
         req = StudyHelpRequest(
             user_question=topic,
             subject=subject,
             help_type=help_type,
             conversation_history=None,
             preferred_agent_role=agent,  # Pass agent as preferred_agent_role
+            available_agent_roles=available_agent_roles,  # Pass available agent roles
         )
         # Await the async endpoint
         import asyncio
@@ -263,7 +269,22 @@ def run_agent(
                     
                     if speak_text_ogg:
                         try:
-                            ogg_path, played = speak_text_ogg(cleaned_answer)
+                            # Determine voice_id based on agent responses
+                            voice_id = None
+                            if agent_responses and len(agent_responses) > 0:
+                                first_response = agent_responses[0]
+                                if isinstance(first_response, dict):
+                                    agent_name = first_response.get("agent", "")
+                                    if agent_name:
+                                        # Import voice mapping function
+                                        try:
+                                            from agents.agent import get_voice_id_for_agent
+                                            voice_id = get_voice_id_for_agent(agent_name, agent_responses)
+                                            print(f"[agent_runner] Using voice_id: {voice_id} for agent: {agent_name}")
+                                        except ImportError:
+                                            pass
+                            
+                            ogg_path, played = speak_text_ogg(cleaned_answer, voice_id=voice_id if voice_id else "21m00Tcm4TlvDq8ikWAM")
                         except Exception as e:
                             print(f"[agent_runner] speak_text_ogg failed: {e}")
                     else:
@@ -386,7 +407,22 @@ def run_agent(
                 
                 if speak_text_ogg:
                     try:
-                        ogg_path, played = speak_text_ogg(cleaned_answer)
+                        # Determine voice_id based on agent responses
+                        voice_id = None
+                        if agent_responses and len(agent_responses) > 0:
+                            first_response = agent_responses[0]
+                            if isinstance(first_response, dict):
+                                agent_name = first_response.get("agent", "")
+                                if agent_name:
+                                    # Import voice mapping function
+                                    try:
+                                        from agents.agent import get_voice_id_for_agent
+                                        voice_id = get_voice_id_for_agent(agent_name, agent_responses)
+                                        print(f"[agent_runner] Using voice_id: {voice_id} for agent: {agent_name}")
+                                    except ImportError:
+                                        pass
+                        
+                        ogg_path, played = speak_text_ogg(cleaned_answer, voice_id=voice_id if voice_id else "21m00Tcm4TlvDq8ikWAM")
                     except Exception as e:
                         print(f"[agent_runner] speak_text_ogg failed (http mode): {e}")
 

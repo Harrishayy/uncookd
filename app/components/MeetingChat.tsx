@@ -22,12 +22,16 @@ interface MeetingChatProps {
     name: string;
     avatar_url?: string;
   };
+  meetingUsers?: string[];
+  onAgentResponse?: (agentName: string, message: string) => void; // Callback for agent responses to send to whiteboard
 }
 
 export default function MeetingChat({ 
   onSendMessage,
   messages: externalMessages,
-  currentUser
+  currentUser,
+  meetingUsers = [],
+  onAgentResponse
 }: MeetingChatProps) {
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(externalMessages || []);
@@ -35,6 +39,7 @@ export default function MeetingChat({
   const [typingText, setTypingText] = useState("");
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -66,7 +71,12 @@ export default function MeetingChat({
   }, [messages]);
 
   const handleSend = async () => {
-    if (!inputValue.trim() || isLoading) return;
+    if (!inputValue.trim() || isLoading || isProcessing || isPlaying) {
+      if (isProcessing || isPlaying) {
+        console.log('[MeetingChat] Agent is busy, please wait...');
+      }
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}-user`,
@@ -81,12 +91,28 @@ export default function MeetingChat({
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
+    setIsProcessing(true);
 
     // Call onSendMessage callback if provided
     if (onSendMessage) {
       onSendMessage(userMessage.text);
     }
 
+    // IMPORTANT: If no users are in the meeting, don't send - no agents should respond
+    if (!meetingUsers || meetingUsers.length === 0) {
+      const errorMessage: ChatMessage = {
+        id: `msg-${Date.now()}-error`,
+        type: "assistant",
+        text: "No one is in the meeting. Please add users to the meeting first.",
+        timestamp: Date.now(),
+        userName: "Assistant",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+      setIsProcessing(false);
+      setIsLoading(false);
+      return;
+    }
+    
     // Send to backend API
     try {
       const response = await fetch("/api/transcript", {
@@ -96,6 +122,8 @@ export default function MeetingChat({
           transcript: userMessage.text,
           timestamp: userMessage.timestamp,
           isFinal: true,
+          speaking_user: currentUser?.name || "You",
+          meeting_users: meetingUsers || [],
         }),
       });
 
@@ -103,16 +131,65 @@ export default function MeetingChat({
         const data = await response.json();
         const responseText = data.response_transcript || data.response_text || data.transcript || "No response received";
 
-        // Add assistant response
-        const assistantMessage: ChatMessage = {
-          id: `msg-${Date.now()}-assistant`,
-          type: "assistant",
-          text: responseText,
-          timestamp: Date.now(),
-          userName: "Assistant",
-        };
-
-        setMessages((prev) => [...prev, assistantMessage]);
+        // Process agent responses - show each agent's response separately if available
+        if (data.agent_responses && Array.isArray(data.agent_responses) && data.agent_responses.length > 0) {
+          // Add messages for each agent
+          for (const agentResp of data.agent_responses) {
+            if (agentResp && typeof agentResp === 'object') {
+              const agentName = agentResp.agent || 'Assistant';
+              const agentMessage = agentResp.message || '';
+              
+              if (agentMessage) {
+                const agentMessageObj: ChatMessage = {
+                  id: `msg-${Date.now()}-${agentName}`,
+                  type: "assistant",
+                  text: agentMessage,
+                  timestamp: Date.now(),
+                  userName: agentName,
+                };
+                setMessages((prev) => [...prev, agentMessageObj]);
+              }
+            }
+          }
+        } else {
+          // Fallback: Add single assistant response
+          const assistantMessage: ChatMessage = {
+            id: `msg-${Date.now()}-assistant`,
+            type: "assistant",
+            text: responseText,
+            timestamp: Date.now(),
+            userName: "Assistant",
+          };
+          setMessages((prev) => [...prev, assistantMessage]);
+        }
+        
+        // Send agent responses to whiteboard (via parent callback)
+        // Check if we have professor/expert responses to send to whiteboard
+        if (data.agent_responses && Array.isArray(data.agent_responses) && onAgentResponse) {
+          for (const agentResp of data.agent_responses) {
+            if (agentResp && typeof agentResp === 'object') {
+              const agentName = agentResp.agent || '';
+              const agentMessage = agentResp.message || '';
+              
+              // Check if this is professor or expert
+              const isProfessor = agentName.toLowerCase().includes('socratic') || 
+                                agentName.toLowerCase().includes('mentor') ||
+                                agentName.toLowerCase().includes('professor');
+              const isExpert = agentName.toLowerCase().includes('problem analyst') ||
+                             agentName.toLowerCase().includes('expert') ||
+                             agentName.toLowerCase().includes('analyst');
+              
+              if ((isProfessor || isExpert) && agentMessage) {
+                console.log(`[MeetingChat] Sending ${agentName} response to whiteboard`);
+                // Wrap agent message in concise prompt
+                const wrappedPrompt = `Draw: ${agentMessage}`;
+                onAgentResponse(agentName, wrappedPrompt);
+                // Break after first professor/expert response
+                break;
+              }
+            }
+          }
+        }
 
         // Play audio if available (OGG format)
         if (data.audio) {
@@ -142,48 +219,59 @@ export default function MeetingChat({
             audio.play().catch((err) => {
               console.error("[MeetingChat] Error playing audio:", err);
               setIsPlaying(false);
+              setIsProcessing(false);
             });
             
             audio.onended = () => {
               URL.revokeObjectURL(audioUrl);
               audioRef.current = null;
               setIsPlaying(false);
-              console.log("[MeetingChat] Audio playback completed");
+              setIsProcessing(false);
+              console.log("[MeetingChat] Audio playback completed, ready for new input");
             };
             
             audio.onerror = (err) => {
               console.error("[MeetingChat] Audio playback error:", err);
               setIsPlaying(false);
+              setIsProcessing(false);
+              if (audioRef.current && audioRef.current.src) {
+                URL.revokeObjectURL(audioRef.current.src);
+              }
               audioRef.current = null;
             };
           } catch (audioError) {
             console.error("[MeetingChat] Error processing audio:", audioError);
             setIsPlaying(false);
+            setIsProcessing(false);
           }
         } else {
           console.log("[MeetingChat] No audio data received");
+          setIsProcessing(false);
         }
       } else {
-        // Add error message
+        // Graceful error handling - just say sorry
         const errorMessage: ChatMessage = {
           id: `msg-${Date.now()}-error`,
           type: "assistant",
-          text: "Sorry, I couldn't process your message. Please try again.",
+          text: "Sorry, I couldn't do it.",
           timestamp: Date.now(),
           userName: "Assistant",
         };
         setMessages((prev) => [...prev, errorMessage]);
+        setIsProcessing(false);
       }
     } catch (error) {
+      // Catch any other errors and handle gracefully
       console.error("[MeetingChat] Error sending message:", error);
       const errorMessage: ChatMessage = {
         id: `msg-${Date.now()}-error`,
         type: "assistant",
-        text: "Failed to send message. Please check your connection.",
+        text: "Sorry, I couldn't do it.",
         timestamp: Date.now(),
         userName: "Assistant",
       };
       setMessages((prev) => [...prev, errorMessage]);
+      setIsProcessing(false);
     } finally {
       setIsLoading(false);
     }
@@ -208,9 +296,11 @@ export default function MeetingChat({
         URL.revokeObjectURL(audioRef.current.src);
       }
       audioRef.current = null;
-      setIsPlaying(false);
-      console.log("[MeetingChat] Audio playback stopped by user");
     }
+    // Reset both playing and processing states to allow chat to work again
+    setIsPlaying(false);
+    setIsProcessing(false);
+    console.log("[MeetingChat] Audio playback stopped by user - chat re-enabled");
   };
 
   // Cleanup audio on unmount
@@ -354,15 +444,15 @@ export default function MeetingChat({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type your message... (Enter to send, Shift+Enter for new line)"
+            placeholder={isProcessing || isPlaying ? "Agent is responding, please wait..." : "Type your message... (Enter to send, Shift+Enter for new line)"}
             className="flex-1 px-4 py-2 rounded-lg bg-gray-700/50 text-gray-100 placeholder-gray-400 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-sm"
             rows={1}
             style={{ minHeight: "44px", maxHeight: "120px" }}
-            disabled={isLoading}
+            disabled={isLoading || isProcessing || isPlaying}
           />
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim() || isLoading}
+            disabled={!inputValue.trim() || isLoading || isProcessing || isPlaying}
             className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 flex-shrink-0"
           >
             <PaperAirplaneIcon className="h-5 w-5" />
