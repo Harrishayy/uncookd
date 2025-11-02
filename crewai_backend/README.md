@@ -22,10 +22,12 @@ cp .env.example .env
 
 3. **Run the server:**
 
+# must run the server
+
 ```bash
 python main.py
 # Or with uvicorn directly:
-uvicorn main:app --reload --port 8000
+uvicorn agents.agent:app --reload --port 8000
 ```
 
 The server will run on `http://localhost:8000`

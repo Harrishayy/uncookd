@@ -10,12 +10,7 @@ This guide explains how to set up and use the audio streaming features with TTS 
 
 ## Environment Variables
 
-Create a `.env` file in the `crewai_backend` directory:
-
-```bash
-# Required for TTS (ElevenLabs)
-ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
-```
+Create a `.env` file in the root directory
 
 ## Installation
 

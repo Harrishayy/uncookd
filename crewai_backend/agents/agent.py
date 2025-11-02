@@ -1,6 +1,7 @@
 """
 CrewAI Backend Server
 FastAPI server to handle CrewAI multi-agent operations
+Previously main.py
 """
 
 from fastapi import FastAPI, HTTPException, WebSocket
@@ -10,7 +11,7 @@ from typing import Optional, Dict, Any, List
 import uvicorn
 import json
 from crewai import Agent, Task, Crew
-from utils.tts import text_to_speech_stream
+from tts.tts import text_to_speech_stream
 from agents.example_agents import (
     create_classroom_crew,
     create_debate_crew,

@@ -776,7 +776,7 @@ def create_debate_crew(
     crew = Crew(
         agents=[professor, expert, devils_advocate],
         tasks=tasks,
-        verbose=True,  # change to false for small innit
+        verbose=True,  # change to false for small
         process="sequential",
     )
 

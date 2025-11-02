@@ -158,7 +158,7 @@ async def call_study_help_direct(
     # Add current directory to path
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-    from main import study_help, StudyHelpRequest
+    from crewai_backend.agents.agent import study_help, StudyHelpRequest
 
     # Create request object
     request = StudyHelpRequest(

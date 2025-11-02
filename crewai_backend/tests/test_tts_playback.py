@@ -26,7 +26,12 @@ from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
-root = Path(__file__).resolve().parent.parent  # -> repo root (uncookd)
+
+root = Path(__file__).resolve().parent.parent.parent  # -> crewi_backend
+sys.path.insert(0, str(root))  # -> repo root (uncookd)
+
+from crewai_backend.agents.agent import Agent
+
 env_path = root / ".env"
 
 if env_path.exists():
@@ -37,10 +42,10 @@ else:
 
 try:
     # Prefer an OGG-producing wrapper if available
-    from utils.tts import text_to_speech_ogg as text_to_speech
+    from tts.tts import text_to_speech_ogg as text_to_speech
 except Exception:
     try:
-        from utils.tts import text_to_speech
+        from tts.tts import text_to_speech
     except Exception:
         text_to_speech = None
 
@@ -155,7 +160,22 @@ def interactive_playback():
         print("No topic provided, exiting.")
         return
 
-    agent = DummyAgent(role="Assistant")
+    request = input("")
+
+    agent = Agent(
+        role=request.agent_config.get("role", "Assistant")
+        if request.agent_config
+        else "Assistant",
+        goal=request.agent_config.get("goal", "Complete the given task")
+        if request.agent_config
+        else "Complete the given task",
+        backstory=request.agent_config.get("backstory", "You are a helpful assistant")
+        if request.agent_config
+        else "You are a helpful assistant",
+        verbose=True,
+        allow_delegation=False,
+    )
+
     response = agent.execute_task(topic)
     print("\nGenerated response:")
     print(response)
