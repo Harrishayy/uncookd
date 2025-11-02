@@ -672,7 +672,29 @@ async def study_help(request: StudyHelpRequest):
         main_answer = None
         visual_suggestions = None
 
-        if isinstance(result, dict):
+        # Debug: Log result type and attributes for troubleshooting
+        print(f"[STUDY HELP] Result type: {type(result)}")
+        if hasattr(result, "__dict__"):
+            print(f"[STUDY HELP] Result attributes: {list(result.__dict__.keys())}")
+
+        # Try multiple ways to extract task outputs from CrewAI result
+        if isinstance(result, list):
+            # Format: List of outputs, one per task
+            for i, output in enumerate(result):
+                agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
+                response_text = str(output)
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+                
+                if main_answer is None and "Expert" in agent_name:
+                    main_answer = response_text
+        
+        elif isinstance(result, dict):
+            # Format: {task_description: output}
             for task_desc, output in result.items():
                 # Extract agent name
                 agent_name = "Expert"
@@ -701,6 +723,97 @@ async def study_help(request: StudyHelpRequest):
                         "description": response_text,
                         "type": "graph",  # Could be extracted from response
                     }
+        
+        elif hasattr(result, "tasks_output"):
+            # Format: CrewAI result object with tasks_output attribute
+            tasks_output = result.tasks_output
+            if isinstance(tasks_output, dict):
+                for task_desc, output in tasks_output.items():
+                    agent_name = "Expert"
+                    for task in tasks:
+                        if task.description == task_desc or task_desc in task.description:
+                            agent_name = task.agent.role
+                            break
+                    
+                    response_text = str(output)
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
+                    
+                    if main_answer is None and "Expert" in agent_name:
+                        main_answer = response_text
+            elif isinstance(tasks_output, list):
+                # If tasks_output is a list
+                for i, output in enumerate(tasks_output):
+                    agent_name = tasks[i].agent.role if i < len(tasks) and hasattr(tasks[i], "agent") else "Expert"
+                    response_text = str(output)
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
+                    
+                    if main_answer is None and "Expert" in agent_name:
+                        main_answer = response_text
+        
+        # Check for raw attribute (sometimes CrewAI stores raw output here)
+        if not agent_responses and hasattr(result, "raw"):
+            raw_output = result.raw
+            if raw_output:
+                response_text = str(raw_output)
+                agent_name = tasks[0].agent.role if tasks and hasattr(tasks[0], "agent") else "Expert"
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+                if main_answer is None:
+                    main_answer = response_text
+        
+        # Check if tasks have output attributes (after execution)
+        if not agent_responses and tasks:
+            for task in tasks:
+                task_output = None
+                # Try multiple ways to get task output
+                if hasattr(task, "output"):
+                    task_output = task.output
+                elif hasattr(task, "result"):
+                    task_output = task.result
+                elif hasattr(task, "raw_output"):
+                    task_output = task.raw_output
+                
+                if task_output and str(task_output).strip():
+                    agent_name = task.agent.role if hasattr(task, "agent") and task.agent else "Unknown Agent"
+                    response_text = str(task_output).strip()
+                    agent_responses.append(
+                        {
+                            "agent": agent_name,
+                            "message": response_text,
+                        }
+                    )
+                    
+                    if main_answer is None and "Expert" in agent_name:
+                        main_answer = response_text
+        
+        # Fallback: if result is a string or single value, treat as single response
+        if not agent_responses:
+            response_text = str(result)
+            if response_text and response_text.strip():
+                # Try to find the first task's agent
+                agent_name = tasks[0].agent.role if tasks and hasattr(tasks[0], "agent") else "Expert"
+                agent_responses.append(
+                    {
+                        "agent": agent_name,
+                        "message": response_text,
+                    }
+                )
+                if main_answer is None:
+                    main_answer = response_text
 
         # If no main answer, use first response
         if main_answer is None and agent_responses:
