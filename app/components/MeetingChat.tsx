@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
+import { PaperAirplaneIcon, StopIcon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
 
 export interface ChatMessage {
@@ -34,8 +34,10 @@ export default function MeetingChat({
   const [isLoading, setIsLoading] = useState(false);
   const [typingText, setTypingText] = useState("");
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [isPlaying, setIsPlaying] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Animate typing indicator
   useEffect(() => {
@@ -116,27 +118,47 @@ export default function MeetingChat({
         if (data.audio) {
           try {
             console.log("[MeetingChat] Received audio data, decoding...");
+            
+            // Stop any currently playing audio
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+              if (audioRef.current.src) {
+                URL.revokeObjectURL(audioRef.current.src);
+              }
+            }
+            
             const audioBytes = Uint8Array.from(atob(data.audio), (c) => c.charCodeAt(0));
             // OGG files from ElevenLabs are typically audio/ogg or audio/opus
             const audioBlob = new Blob([audioBytes], { type: "audio/ogg; codecs=opus" });
             const audioUrl = URL.createObjectURL(audioBlob);
             const audio = new Audio(audioUrl);
             
+            // Store audio reference
+            audioRef.current = audio;
+            setIsPlaying(true);
+            
             console.log("[MeetingChat] Playing audio response...");
             audio.play().catch((err) => {
               console.error("[MeetingChat] Error playing audio:", err);
+              setIsPlaying(false);
             });
             
             audio.onended = () => {
               URL.revokeObjectURL(audioUrl);
+              audioRef.current = null;
+              setIsPlaying(false);
               console.log("[MeetingChat] Audio playback completed");
             };
             
             audio.onerror = (err) => {
               console.error("[MeetingChat] Audio playback error:", err);
+              setIsPlaying(false);
+              audioRef.current = null;
             };
           } catch (audioError) {
             console.error("[MeetingChat] Error processing audio:", audioError);
+            setIsPlaying(false);
           }
         } else {
           console.log("[MeetingChat] No audio data received");
@@ -177,6 +199,31 @@ export default function MeetingChat({
   const handleImageError = (messageId: string) => {
     setImageErrors(prev => new Set(prev).add(messageId));
   };
+
+  const handleStopPlayback = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      if (audioRef.current.src) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+      audioRef.current = null;
+      setIsPlaying(false);
+      console.log("[MeetingChat] Audio playback stopped by user");
+    }
+  };
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        if (audioRef.current.src) {
+          URL.revokeObjectURL(audioRef.current.src);
+        }
+      }
+    };
+  }, []);
 
   const renderAvatar = (message: ChatMessage) => {
     const hasError = imageErrors.has(message.id);
@@ -290,6 +337,18 @@ export default function MeetingChat({
 
       {/* Input Area */}
       <div className="p-4 border-t border-gray-700 bg-gray-800/80">
+        {/* Stop button - shown when audio is playing */}
+        {isPlaying && (
+          <div className="mb-2 flex justify-center">
+            <button
+              onClick={handleStopPlayback}
+              className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <StopIcon className="h-4 w-4" />
+              <span className="text-sm">Stop Playback</span>
+            </button>
+          </div>
+        )}
         <div className="flex gap-2">
           <textarea
             value={inputValue}
