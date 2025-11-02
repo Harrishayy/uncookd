@@ -126,6 +126,37 @@ export default function Page() {
 
   const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8888";
 
+  // Clean transcript by removing unnecessary characters
+  const cleanTranscript = (text: string): string => {
+    if (!text) return text;
+    
+    // Remove backticks (code formatting)
+    let cleaned = text.replace(/`([^`]+)`/g, '$1');
+    
+    // Clean up bullet points - convert markdown bullets to simple dashes
+    cleaned = cleaned.replace(/^\*\s+/gm, '- ');
+    cleaned = cleaned.replace(/^-\s+/gm, '- ');
+    
+    // Remove excessive asterisks used for emphasis (keep content)
+    cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
+    
+    // Clean up markdown headers
+    cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
+    
+    // Remove extra whitespace but preserve intentional line breaks
+    cleaned = cleaned.replace(/[ \t]+/g, ' ');
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    
+    // Remove leading/trailing whitespace from each line
+    cleaned = cleaned.split('\n').map(line => line.trim()).join('\n');
+    
+    // Remove excessive blank lines at start/end
+    cleaned = cleaned.replace(/^\n+|\n+$/g, '');
+    
+    return cleaned.trim();
+  };
+
   const {
     muted,
     deafened,
@@ -202,10 +233,12 @@ export default function Page() {
             console.log('[Transcript API] Response:', data);
             
             // Log transcript text that accompanies the audio
-            const responseTranscript = data.response_transcript || data.response_text || '';
+            let responseTranscript = data.response_transcript || data.response_text || '';
             const originalTranscript = data.transcript || entry.text;
             
+            // Clean the response transcript
             if (responseTranscript) {
+              responseTranscript = cleanTranscript(responseTranscript);
               console.log('[Transcript API] Response transcript (audio content):', responseTranscript);
             }
             if (originalTranscript) {
@@ -451,14 +484,14 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-gray-950">
       <Header />
-      <div className="flex flex-col justify-center items-center min-h-[80vh] py-8 gap-6 relative">
+      <div className="flex flex-col justify-center items-center min-h-[80vh] py-8 gap-6 relative" style={{ maxWidth: '100vw', overflow: 'hidden' }}>
         <audio id="local-preview" className="hidden" />
         <audio id="remote-audio" ref={remoteAudioRef} className="hidden" />
 
         {/* Main Content with Chat Sidebar */}
-        <div className="flex gap-6 w-full max-w-7xl mx-8">
+        <div className="flex gap-6 mx-8 overflow-hidden flex-shrink-0" style={{ maxWidth: '80rem', width: 'min(calc(100vw - 4rem), 80rem)', flexShrink: 0 }}>
           {/* Main Meeting Area */}
-          <div className="relative z-20 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl flex-1 overflow-hidden">
+          <div className="relative z-20 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex-shrink-0" style={{ width: showChat ? 'calc(100% - 24rem - 1.5rem)' : '100%', maxWidth: showChat ? 'calc(80rem - 24rem - 1.5rem)' : '80rem', minWidth: 0, flexShrink: 0, flexGrow: 0 }}>
           <div className="p-6 border-b border-gray-700 bg-gray-900/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -536,7 +569,7 @@ export default function Page() {
 
           {/* Chat Sidebar - Toggleable */}
           {showChat && (
-            <div className="w-96 flex-shrink-0">
+            <div className="w-96 flex-shrink-0" style={{ width: '24rem', maxWidth: '24rem' }}>
               <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden h-[calc(100vh-200px)] flex flex-col">
                 <div className="p-4 border-b border-gray-700 bg-gray-900/80">
                   <h2 className="text-xl font-bold text-white">Meeting Chat</h2>

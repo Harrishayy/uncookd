@@ -24,7 +24,7 @@ export default function MeetingUser({
   const shouldShowImage = avatar_url && !imageError;
 
   return (
-    <div className="group relative w-64 h-48 rounded-xl bg-gray-800/60 border border-gray-700 hover:border-gray-600 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden">
+    <div className="group relative w-64 h-48 rounded-xl bg-gray-800/60 border border-gray-700 hover:border-gray-600 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden max-w-full" style={{ maxWidth: '256px' }}>
       {/* Animated background gradient */}
       {isSpeaking && (
         <div className="absolute inset-0 bg-gray-700/20 animate-pulse" />

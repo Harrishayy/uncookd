@@ -25,8 +25,8 @@ export default function MeetingArea({
     : [currentUser];
 
   return (
-    <div className="p-6 bg-gray-900">
-      <div className="flex flex-wrap gap-6 justify-center">
+    <div className="p-6 bg-gray-900 max-w-full overflow-hidden">
+      <div className="flex flex-wrap gap-6 justify-center max-w-full">
         {users.map((user) => (
           <MeetingUser
             key={user.name}

@@ -44,6 +44,37 @@ export default function MeetingChat({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Clean transcript by removing unnecessary characters
+  const cleanTranscript = (text: string): string => {
+    if (!text) return text;
+    
+    // Remove backticks (code formatting)
+    let cleaned = text.replace(/`([^`]+)`/g, '$1');
+    
+    // Clean up bullet points - convert markdown bullets to simple dashes
+    cleaned = cleaned.replace(/^\*\s+/gm, '- ');
+    cleaned = cleaned.replace(/^-\s+/gm, '- ');
+    
+    // Remove excessive asterisks used for emphasis (keep content)
+    cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+    cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
+    
+    // Clean up markdown headers
+    cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
+    
+    // Remove extra whitespace but preserve intentional line breaks
+    cleaned = cleaned.replace(/[ \t]+/g, ' ');
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    
+    // Remove leading/trailing whitespace from each line
+    cleaned = cleaned.split('\n').map(line => line.trim()).join('\n');
+    
+    // Remove excessive blank lines at start/end
+    cleaned = cleaned.replace(/^\n+|\n+$/g, '');
+    
+    return cleaned.trim();
+  };
+
   // Animate typing indicator
   useEffect(() => {
     if (isLoading) {
@@ -78,22 +109,26 @@ export default function MeetingChat({
       return;
     }
 
+    const originalInput = inputValue.trim();
+    // Clean user input only for display in chat
+    const cleanedInput = cleanTranscript(originalInput);
+    
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}-user`,
       type: "user",
-      text: inputValue.trim(),
+      text: cleanedInput,
       timestamp: Date.now(),
       userName: currentUser?.name || "You",
       userAvatar: currentUser?.avatar_url,
     };
 
-    // Add user message immediately
+    // Add user message immediately (with cleaned text for display)
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
     setIsProcessing(true);
 
-    // Call onSendMessage callback if provided
+    // Call onSendMessage callback if provided (with cleaned text)
     if (onSendMessage) {
       onSendMessage(userMessage.text);
     }
@@ -114,12 +149,13 @@ export default function MeetingChat({
     }
     
     // Send to backend API
+    // Send original transcript to backend API (not cleaned)
     try {
       const response = await fetch("/api/transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          transcript: userMessage.text,
+          transcript: originalInput,
           timestamp: userMessage.timestamp,
           isFinal: true,
           speaking_user: currentUser?.name || "You",
@@ -129,7 +165,10 @@ export default function MeetingChat({
 
       if (response.ok) {
         const data = await response.json();
-        const responseText = data.response_transcript || data.response_text || data.transcript || "No response received";
+        let responseText = data.response_transcript || data.response_text || data.transcript || "No response received";
+        
+        // Clean the response transcript
+        responseText = cleanTranscript(responseText);
 
         // Process agent responses - show each agent's response separately if available
         if (data.agent_responses && Array.isArray(data.agent_responses) && data.agent_responses.length > 0) {
@@ -427,18 +466,6 @@ export default function MeetingChat({
 
       {/* Input Area */}
       <div className="p-4 border-t border-gray-700 bg-gray-800/80">
-        {/* Stop button - shown when audio is playing */}
-        {isPlaying && (
-          <div className="mb-2 flex justify-center">
-            <button
-              onClick={handleStopPlayback}
-              className="px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-            >
-              <StopIcon className="h-4 w-4" />
-              <span className="text-sm">Stop Playback</span>
-            </button>
-          </div>
-        )}
         <div className="flex gap-2">
           <textarea
             value={inputValue}
@@ -455,8 +482,16 @@ export default function MeetingChat({
             disabled={!inputValue.trim() || isLoading || isProcessing || isPlaying}
             className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 flex-shrink-0"
           >
-            <PaperAirplaneIcon className="h-5 w-5" />
+            <PaperAirplaneIcon className="h-4 w-4" />
           </button>
+          {isPlaying && (
+            <button
+              onClick={handleStopPlayback}
+              className="w-8 h-8 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors flex items-center justify-center flex-shrink-0"
+            >
+              <StopIcon className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>
