@@ -15,12 +15,10 @@ import Footer from "../components/Footer";
 import useMeetingAudio from "./useMeetingAudio";
 
 const allUsers = [
-  { name: "John Doe", avatar_url: "https://via.placeholder.com/150" },
-  { name: "Jane Doe", avatar_url: "https://via.placeholder.com/150" },
-  { name: "Alice Smith", avatar_url: "https://via.placeholder.com/150" },
-  { name: "Bob Johnson", avatar_url: "https://via.placeholder.com/150" },
-  { name: "Charlie Brown", avatar_url: "https://via.placeholder.com/150" },
-  { name: "Eve Adams", avatar_url: "https://via.placeholder.com/150" },
+  { name: "Thomas", avatar_url: "https://via.placeholder.com/150" },
+  { name: "Tara", avatar_url: "https://via.placeholder.com/150" },
+  { name: "Ethan", avatar_url: "https://via.placeholder.com/150" },
+  { name: "Harrish", avatar_url: "https://via.placeholder.com/150" }
 ];
 
 export default function Page() {
@@ -54,7 +52,12 @@ export default function Page() {
       //   headers: { "Content-Type": "application/json" },
       //   body: JSON.stringify(entry),
       // });
-      console.log(entry);
+      const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+      console.log(
+        `[Transcript ${entry.isFinal ? '✓ FINAL' : '⏳ INTERIM'}] ${timestamp}:`,
+        entry.text
+      );
+      console.log('Full entry:', entry);
     },
   });
 
@@ -73,6 +76,16 @@ export default function Page() {
   };
 
   const currentUser = { name: "You", avatar_url: "" };
+
+  // Preload user avatar images
+  useEffect(() => {
+    allUsers.forEach((user) => {
+      if (user.avatar_url) {
+        const img = new window.Image();
+        img.src = user.avatar_url;
+      }
+    });
+  }, []);
 
   useEffect(() => {
     let isMounted = true;

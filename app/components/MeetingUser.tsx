@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useState } from "react";
 import Image from "next/image";
 import { MicrophoneIcon, SpeakerWaveIcon, XMarkIcon } from "@heroicons/react/24/solid";
 
@@ -20,6 +20,9 @@ export default function MeetingUser({
   onRemove,
   isCurrentUser = false
 }: MeetingUserProps) {
+  const [imageError, setImageError] = useState(false);
+  const shouldShowImage = avatar_url && !imageError;
+
   return (
     <div className="group relative w-64 h-48 rounded-xl bg-gray-800/60 border border-gray-700 hover:border-gray-600 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden">
       {/* Animated background gradient */}
@@ -31,7 +34,7 @@ export default function MeetingUser({
       <div className="relative h-full flex flex-col items-center justify-center p-6">
         {/* Avatar */}
         <div className="relative mb-4">
-          {avatar_url ? (
+          {shouldShowImage ? (
             <div className="relative w-20 h-20 rounded-full overflow-hidden ring-4 ring-gray-700 group-hover:ring-gray-600 transition-all">
               <Image
                 src={avatar_url}
@@ -39,6 +42,8 @@ export default function MeetingUser({
                 width={80}
                 height={80}
                 className="object-cover"
+                onError={() => setImageError(true)}
+                unoptimized
               />
             </div>
           ) : (

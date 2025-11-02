@@ -47,7 +47,14 @@ export function startLiveTranscriptionWithWebSpeech(
   };
 
   recognition.onerror = (e: any) => {
-    if (onError) onError(e);
+    // Network errors are common and recoverable in continuous mode - the API auto-retries
+    // Aborted errors happen when stopping recognition - also not critical
+    // Only log errors that actually matter
+    const ignorableErrors = ['network', 'aborted'];
+    if (!e.error || !ignorableErrors.includes(e.error)) {
+      if (onError) onError(e);
+    }
+    // Note: In continuous mode, network errors are automatically handled by the API
   };
 
   try {

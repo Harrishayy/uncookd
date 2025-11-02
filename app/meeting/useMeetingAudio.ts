@@ -60,9 +60,20 @@ export default function useMeetingAudio(
         (text, isFinal) => {
           const entry: TranscriptEntry = { text, isFinal, timestamp: Date.now() };
           setTranscript(prev => [...prev, entry]);
+          // Log transcript when received
+          const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+          console.log(
+            `[Speech Recognition ${entry.isFinal ? '✓ FINAL' : '⏳ INTERIM'}] ${timestamp}:`,
+            text
+          );
           options?.onTranscription?.(entry);
         },
-        (err) => console.warn("Speech error:", err)
+        (err) => {
+          // Only log errors that aren't network-related (network errors are common and handled automatically)
+          if (err?.error && err.error !== 'network' && err.error !== 'aborted') {
+            console.warn("Speech recognition error:", err.error, err.message || '');
+          }
+        }
       );
       if (webRec?.available) {
         speechRecognitionControllerRef.current = webRec;
@@ -72,10 +83,17 @@ export default function useMeetingAudio(
 
     const recorder = startRecordingChunks(stream, async (blob) => {
       try {
+        console.log("[Transcription] Uploading audio chunk for transcription...");
         const res = await uploadChunkForTranscription(blob);
         if ((res as any).text) {
           const entry: TranscriptEntry = { text: (res as any).text, isFinal: true, timestamp: Date.now() };
           setTranscript(prev => [...prev, entry]);
+          // Log transcript when received from server
+          const timestamp = new Date(entry.timestamp).toLocaleTimeString();
+          console.log(
+            `[Server Transcription ✓ FINAL] ${timestamp}:`,
+            (res as any).text
+          );
           options?.onTranscription?.(entry);
         }
       } catch (err) {

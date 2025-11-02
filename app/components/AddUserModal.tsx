@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { Fragment } from "react";
 import { UserPlusIcon, CheckIcon, XMarkIcon } from "@heroicons/react/24/outline";
@@ -19,6 +19,83 @@ interface AddUserModalProps {
   isOpen: boolean;
 }
 
+const UserRow: React.FC<{ 
+  user: User; 
+  isAdded: boolean; 
+  onAdd: () => void;
+}> = ({ user, isAdded, onAdd }) => {
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const shouldShowImage = user.avatar_url && !imageError && imageLoaded;
+
+  return (
+    <div className="group flex items-center justify-between p-3 rounded-lg bg-gray-800/50 hover:bg-gray-800/70 border border-gray-700 hover:border-gray-600 transition-all">
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          {shouldShowImage ? (
+            <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-gray-700 group-hover:ring-gray-600 transition-all">
+              <Image
+                src={user.avatar_url}
+                alt={user.name}
+                width={48}
+                height={48}
+                className="object-cover"
+                onError={() => setImageError(true)}
+                onLoad={() => setImageLoaded(true)}
+                priority
+                unoptimized
+              />
+            </div>
+          ) : (
+            <>
+              {user.avatar_url && !imageError && (
+                <Image
+                  src={user.avatar_url}
+                  alt={user.name}
+                  width={48}
+                  height={48}
+                  className="hidden"
+                  onError={() => setImageError(true)}
+                  onLoad={() => setImageLoaded(true)}
+                  priority
+                  unoptimized
+                />
+              )}
+              <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center ring-2 ring-gray-700 group-hover:ring-gray-600 transition-all">
+                <span className="text-lg font-bold text-black">
+                  {user.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        <span className="text-gray-100 font-medium">{user.name}</span>
+      </div>
+      <button
+        onClick={onAdd}
+        disabled={isAdded}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+          isAdded
+            ? "bg-gray-800/50 text-gray-500 cursor-not-allowed border border-gray-700"
+            : "bg-white text-black hover:bg-gray-100 border border-gray-600"
+        }`}
+      >
+        {isAdded ? (
+          <>
+            <CheckIcon className="h-4 w-4" />
+            <span>Added</span>
+          </>
+        ) : (
+          <>
+            <UserPlusIcon className="h-4 w-4" />
+            <span>Add</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+};
+
 const AddUserModal: React.FC<AddUserModalProps> = ({ 
   users, 
   onClose, 
@@ -26,6 +103,21 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
   addedUsers,
   isOpen 
 }) => {
+  // Preload images when modal is about to open
+  useEffect(() => {
+    if (isOpen) {
+      users.forEach((user) => {
+        if (user.avatar_url) {
+          const link = document.createElement('link');
+          link.rel = 'preload';
+          link.as = 'image';
+          link.href = user.avatar_url;
+          document.head.appendChild(link);
+        }
+      });
+    }
+  }, [isOpen, users]);
+
   return (
     <Transition appear show={isOpen} as={Fragment}>
       <Dialog as="div" className="relative z-50" onClose={onClose}>
@@ -72,52 +164,12 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
                   {users.map((user) => {
                     const isAdded = addedUsers.includes(user.name);
                     return (
-                      <div
+                      <UserRow 
                         key={user.name}
-                        className="group flex items-center justify-between p-3 rounded-lg bg-gray-800/50 hover:bg-gray-800/70 border border-gray-700 hover:border-gray-600 transition-all"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                            {user.avatar_url ? (
-                              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-gray-700 group-hover:ring-gray-600 transition-all">
-                                <Image
-                                  src={user.avatar_url}
-                                  alt={user.name}
-                                  width={48}
-                                  height={48}
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center">
-                                <UserPlusIcon className="h-6 w-6 text-black" />
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-gray-100 font-medium">{user.name}</span>
-                        </div>
-                        <button
-                          onClick={() => onAdd(user)}
-                          disabled={isAdded}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
-                            isAdded
-                              ? "bg-gray-800/50 text-gray-500 cursor-not-allowed border border-gray-700"
-                              : "bg-white text-black hover:bg-gray-100 border border-gray-600"
-                          }`}
-                        >
-                          {isAdded ? (
-                            <>
-                              <CheckIcon className="h-4 w-4" />
-                              <span>Added</span>
-                            </>
-                          ) : (
-                            <>
-                              <UserPlusIcon className="h-4 w-4" />
-                              <span>Add</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                        user={user}
+                        isAdded={isAdded}
+                        onAdd={() => onAdd(user)}
+                      />
                     );
                   })}
                 </div>
