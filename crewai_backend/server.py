@@ -4,6 +4,27 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import base64
 import json
+import os
+import sys
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import agent runner and TTS utilities
+try:
+    from agent_runner import run_agent, _extract_answer_from_response
+except ImportError:
+    print("[server] Warning: Could not import agent_runner. Some features may not work.")
+    run_agent = None
+    _extract_answer_from_response = None
+
+# Import TTS functions
+try:
+    from tts.tts import text_to_speech
+except ImportError as e:
+    print("[server] Warning: Could not import TTS functions. Audio features may not work.")
+    print(f"[server] Error: {e}")
+    text_to_speech = None
 
 app = FastAPI()
 
@@ -45,22 +66,69 @@ async def generate_response(body: TranscriptRequest):
     """
     user_message = body.transcript
     
-    # TODO: Process transcript with AI/LLM to generate response
-    # TODO: Convert response text to audio (TTS)
-    
-    # Placeholder response
-    transcript = user_message
-    audio_base64 = None  # Placeholder - should contain base64 encoded audio
-    
-    # For now, return a simple acknowledgment
-    response_text = f"Received: {user_message}"
-    
-    return {
-        "status": "success",
-        "transcript": transcript,
-        "response_text": response_text,
-        "audio": audio_base64  # base64 encoded audio bytes
-    }
+    try:
+        # Use agent_runner to process the transcript
+        if run_agent:
+            # Use direct mode to call the agent
+            result = run_agent(
+                mode="direct",
+                topic=user_message,
+                subject="general",  # Can be extracted from context if needed
+                help_type="explanation",
+                agent=None,  # Auto-select appropriate agent
+            )
+            
+            if result and result.get("response"):
+                # Extract answer from response
+                if _extract_answer_from_response:
+                    response_text = _extract_answer_from_response(result["response"])
+                else:
+                    # Fallback extraction
+                    resp_dict = result["response"]
+                    response_text = resp_dict.get("answer") or resp_dict.get("response_text") or user_message
+                
+                # Generate audio from response text
+                audio_base64 = None
+                if response_text and text_to_speech:
+                    try:
+                        # Generate audio using TTS
+                        audio_bytes = text_to_speech(response_text)
+                        if audio_bytes:
+                            # Encode audio as base64
+                            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                    except Exception as e:
+                        print(f"[generate-response] TTS error: {e}")
+                
+                return {
+                    "status": "success",
+                    "transcript": user_message,  # Original user transcript
+                    "response_text": response_text or "Processing...",  # AI-generated response text
+                    "response_transcript": response_text or "Processing...",  # Transcript of what's in audio (same as response_text)
+                    "audio": audio_base64  # base64 encoded audio bytes
+                }
+        else:
+            # Fallback if agent_runner is not available
+            response_text = f"Received: {user_message}"
+            return {
+                "status": "success",
+                "transcript": user_message,  # Original user transcript
+                "response_text": response_text,  # AI-generated response text
+                "response_transcript": response_text,  # Transcript of what's in audio
+                "audio": None
+            }
+    except Exception as e:
+        print(f"[generate-response] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return error response
+        error_message = f"Error processing request: {str(e)}"
+        return {
+            "status": "error",
+            "transcript": user_message,  # Original user transcript
+            "response_text": error_message,  # Error message text
+            "response_transcript": error_message,  # Transcript of what's in audio (error message)
+            "audio": None
+        }
 
 @app.post("/api/whiteboard-update")
 async def whiteboard_update(body: WhiteboardUpdateRequest):
@@ -71,16 +139,36 @@ async def whiteboard_update(body: WhiteboardUpdateRequest):
     board_id = body.boardId
     update_data = body.update
     
-    # TODO: Process whiteboard update with AI if needed
-    # TODO: Generate drawing instructions based on update
-    
-    # Placeholder response
-    return {
-        "status": "success",
-        "boardId": board_id,
-        "update": update_data,
-        "instructions": []  # AI-generated drawing instructions if any
-    }
+    try:
+        # Extract information from update data
+        shapes_count = update_data.get("shapesCount", 0)
+        timestamp = update_data.get("timestamp")
+        
+        # Optionally process with AI if significant changes detected
+        instructions = []
+        
+        # For now, just acknowledge the update
+        # TODO: Add AI processing to generate drawing instructions based on context
+        # This could analyze the whiteboard state and suggest improvements or generate
+        # additional content based on what's already drawn
+        
+        return {
+            "status": "success",
+            "boardId": board_id,
+            "update": update_data,
+            "instructions": instructions  # AI-generated drawing instructions if any
+        }
+    except Exception as e:
+        print(f"[whiteboard-update] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "boardId": board_id,
+            "update": update_data,
+            "instructions": [],
+            "error": str(e)
+        }
 
 @app.post("/api/desmos-plot")
 async def desmos_plot(body: DesmosPlotRequest):
@@ -94,23 +182,90 @@ async def desmos_plot(body: DesmosPlotRequest):
     y_min = body.yMin
     y_max = body.yMax
     
-    # TODO: Process expression with AI to generate Desmos-compatible expression
-    # TODO: Parse natural language math requests into Desmos expressions
-    
-    # Placeholder - return the expression as-is for now
-    desmos_expression = expression
-    
-    return {
-        "status": "success",
-        "expression": desmos_expression,
-        "viewBounds": {
-            "xMin": x_min or -10,
-            "xMax": x_max or 10,
-            "yMin": y_min or -10,
-            "yMax": y_max or 10
+    try:
+        # Use agent_runner to process natural language math expressions
+        desmos_expression = expression  # Default to original expression
+        
+        if run_agent and expression:
+            # Check if expression looks like natural language (contains words)
+            # vs already a math expression
+            is_natural_language = any(word.isalpha() and word.lower() not in 
+                ['sin', 'cos', 'tan', 'log', 'ln', 'exp', 'sqrt', 'abs', 'x', 'y', 'pi', 'e'] 
+                for word in expression.split())
+            
+            if is_natural_language:
+                # Process natural language request with AI
+                topic = f"Convert this to a Desmos graphing expression: {expression}"
+                result = run_agent(
+                    mode="direct",
+                    topic=topic,
+                    subject="mathematics",
+                    help_type="explanation",
+                    agent="expert",
+                )
+                
+                if result and result.get("response"):
+                    # Extract Desmos-compatible expression from AI response
+                    if _extract_answer_from_response:
+                        ai_response = _extract_answer_from_response(result["response"])
+                        # Try to extract expression from response (look for LaTeX or math notation)
+                        # This is a simple heuristic - could be improved
+                        if ai_response:
+                            # Look for common math patterns
+                            import re
+                            # Look for patterns like y=, f(x)=, etc.
+                            math_patterns = [
+                                r'y\s*=\s*([^,\n]+)',
+                                r'f\(x\)\s*=\s*([^,\n]+)',
+                                r'([a-zA-Z]+\s*=\s*[^,\n]+)',
+                            ]
+                            for pattern in math_patterns:
+                                match = re.search(pattern, ai_response)
+                                if match:
+                                    desmos_expression = match.group(1).strip()
+                                    break
+                            
+                            # If no pattern found, try to extract the first mathematical expression
+                            if desmos_expression == expression:
+                                # Simple fallback: take first line that looks mathematical
+                                lines = ai_response.split('\n')
+                                for line in lines:
+                                    if any(char in line for char in ['=', '+', '-', '*', '^', '/', '(']):
+                                        # Clean up the line
+                                        desmos_expression = line.strip()
+                                        break
+        else:
+            # Already a math expression, use as-is
+            desmos_expression = expression
+        
+        return {
+            "status": "success",
+            "expression": desmos_expression,
+            "viewBounds": {
+                "xMin": x_min or -10,
+                "xMax": x_max or 10,
+                "yMin": y_min or -10,
+                "yMax": y_max or 10
+            }
         }
-    }
+    except Exception as e:
+        print(f"[desmos-plot] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return original expression on error
+        return {
+            "status": "success",
+            "expression": expression,
+            "viewBounds": {
+                "xMin": x_min or -10,
+                "xMax": x_max or 10,
+                "yMin": y_min or -10,
+                "yMax": y_max or 10
+            },
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
+    # Use import string for reload to work properly
+    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)

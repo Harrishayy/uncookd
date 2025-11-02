@@ -8,6 +8,7 @@ import DeviceConfigModal from "../components/DeviceConfigModal";
 import TldrawBoardEmbedded from "../components/TldrawBoardEmbedded";
 import DesmosCalculator from "../components/DesmosCalculator";
 import MeetingArea from "../components/MeetingArea";
+import MeetingChat from "../components/MeetingChat";
 import MeetingToolbar from "../components/MeetingToolbar";
 import { UserCircleIcon, UserPlusIcon } from "@heroicons/react/24/solid";
 import { Transition } from "@headlessui/react";
@@ -28,6 +29,7 @@ export default function Page() {
   const [showConfig, setShowConfig] = useState(false);
   const [showWhiteboard, setShowWhiteboard] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
+  const [showChat, setShowChat] = useState(true);
   const [agentPrompt, setAgentPrompt] = useState<any>(null);
 
   const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL || "ws://localhost:8888";
@@ -70,6 +72,17 @@ export default function Page() {
             const data = await response.json();
             console.log('[Transcript API] Response:', data);
             
+            // Log transcript text that accompanies the audio
+            const responseTranscript = data.response_transcript || data.response_text || '';
+            const originalTranscript = data.transcript || entry.text;
+            
+            if (responseTranscript) {
+              console.log('[Transcript API] Response transcript (audio content):', responseTranscript);
+            }
+            if (originalTranscript) {
+              console.log('[Transcript API] Original user transcript:', originalTranscript);
+            }
+            
             // Play audio response if available
             if (data.audio) {
               try {
@@ -80,6 +93,10 @@ export default function Page() {
                 
                 // Create and play audio element
                 const audio = new Audio(audioUrl);
+                
+                // Log that we're playing audio with its transcript
+                console.log('[Transcript API] Playing audio response:', responseTranscript);
+                
                 audio.play().catch(err => {
                   console.error('[Transcript API] Error playing audio:', err);
                 });
@@ -91,9 +108,19 @@ export default function Page() {
               } catch (audioError) {
                 console.error('[Transcript API] Error processing audio:', audioError);
               }
+            } else if (responseTranscript) {
+              // Even if no audio, log the response transcript
+              console.log('[Transcript API] No audio, but transcript available:', responseTranscript);
             }
           } else {
             console.error('[Transcript API] Request failed:', response.status);
+            // Try to get error details
+            try {
+              const errorData = await response.json();
+              console.error('[Transcript API] Error details:', errorData);
+            } catch (e) {
+              // Ignore JSON parse errors
+            }
           }
         } catch (error) {
           console.error('[Transcript API] Error sending transcript:', error);
@@ -118,12 +145,15 @@ export default function Page() {
 
   const currentUser = { name: "You", avatar_url: "" };
 
-  // Preload user avatar images
+  // Preload user avatar images (skip broken placeholder URLs)
   useEffect(() => {
     allUsers.forEach((user) => {
-      if (user.avatar_url) {
+      if (user.avatar_url && !user.avatar_url.includes('via.placeholder.com')) {
         const img = new window.Image();
         img.src = user.avatar_url;
+        img.onerror = () => {
+          // Silently handle image load errors
+        };
       }
     });
   }, []);
@@ -160,11 +190,14 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-gray-950">
       <Header />
-      <div className="flex flex-col justify-center items-center min-h-[80vh] py-8 gap-6">
+      <div className="flex flex-col justify-center items-center min-h-[80vh] py-8 gap-6 relative">
         <audio id="local-preview" className="hidden" />
         <audio id="remote-audio" ref={remoteAudioRef} className="hidden" />
 
-        <div className="relative z-20 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl w-full max-w-7xl mx-8 overflow-hidden">
+        {/* Main Content with Chat Sidebar */}
+        <div className="flex gap-6 w-full max-w-7xl mx-8">
+          {/* Main Meeting Area */}
+          <div className="relative z-20 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl flex-1 overflow-hidden">
           <div className="p-6 border-b border-gray-700 bg-gray-900/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -208,12 +241,32 @@ export default function Page() {
             onDeafen={(newDeafened) => handleDeafen(newDeafened)}
             onWhiteboard={() => setShowWhiteboard(!showWhiteboard)}
             onCalculator={() => setShowCalculator(!showCalculator)}
+            onChat={() => setShowChat(!showChat)}
+            showChat={showChat}
             onLeave={() => {
               cleanup();
               router.push("/");
             }}
             onSettings={() => setShowConfig(true)}
           />
+          </div>
+
+          {/* Chat Sidebar - Toggleable */}
+          {showChat && (
+            <div className="w-96 flex-shrink-0">
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden h-[calc(100vh-200px)] flex flex-col">
+                <div className="p-4 border-b border-gray-700 bg-gray-900/80">
+                  <h2 className="text-xl font-bold text-white">Meeting Chat</h2>
+                </div>
+                <MeetingChat
+                  onSendMessage={(message) => {
+                    console.log('[MeetingChat] User sent message:', message);
+                  }}
+                  currentUser={currentUser}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Whiteboard */}
@@ -247,6 +300,7 @@ export default function Page() {
 
         {/* Desmos Calculator */}
         <DesmosCalculator isOpen={showCalculator} onClose={() => setShowCalculator(false)} />
+
       </div>
 
       {/* Modals */}

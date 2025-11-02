@@ -248,10 +248,12 @@ def speak_text_native(text: str) -> bool:
             return True
         if system == "Windows":
             # Use PowerShell SAPI
+            # Escape single quotes in text for PowerShell
+            escaped_text = text.replace("'", "''")
             cmd = [
                 "powershell",
                 "-Command",
-                f"Add-Type –AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{text.replace("'", "\\'")}')",
+                f"Add-Type –AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{escaped_text}')",
             ]
             subprocess.run(cmd, shell=True)
             return True

@@ -48,14 +48,24 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       status: 'success',
-      transcript: data.transcript,
-      response_text: data.response_text,
+      transcript: data.transcript, // Original user transcript
+      response_text: data.response_text || data.response_transcript, // AI-generated response text
+      response_transcript: data.response_transcript || data.response_text, // Transcript of what's in audio
       audio: audioUrl, // base64 encoded audio or null
     });
-  } catch (error: any) {
+    } catch (error: any) {
     console.error('[Transcript API] Error:', error);
+    const errorMessage = error.message || 'Failed to process transcript';
     return NextResponse.json(
-      { error: 'Failed to process transcript', details: error.message },
+      { 
+        status: 'error',
+        error: 'Failed to process transcript', 
+        details: errorMessage,
+        transcript: body?.transcript || body?.text || '', // Include original transcript even on error
+        response_text: errorMessage,
+        response_transcript: errorMessage,
+        audio: null
+      },
       { status: 500 }
     );
   }

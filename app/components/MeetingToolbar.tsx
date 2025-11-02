@@ -6,7 +6,8 @@ import {
   RectangleStackIcon,
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon,
-  CalculatorIcon
+  CalculatorIcon,
+  ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/solid";
 import { 
   MicrophoneIcon as MicrophoneIconOutline,
@@ -22,8 +23,10 @@ export default function MeetingToolbar({
   onDeafen,
   onWhiteboard,
   onCalculator,
+  onChat,
   onLeave,
   onSettings,
+  showChat,
 }: {
   muted: boolean;
   deafened: boolean;
@@ -31,8 +34,10 @@ export default function MeetingToolbar({
   onDeafen: (newDeafened: boolean) => void;
   onWhiteboard: () => void;
   onCalculator: () => void;
+  onChat?: () => void;
   onLeave: () => void;
   onSettings: () => void;
+  showChat?: boolean;
 }) {
   return (
     <div className="p-6 border-t border-gray-700 bg-gray-900/60 backdrop-blur-sm">
@@ -110,6 +115,18 @@ export default function MeetingToolbar({
           <CalculatorIcon className="h-5 w-5" />
           <span className="hidden sm:inline">Calculator</span>
         </Button>
+
+        {/* Chat Toggle */}
+        {onChat && (
+          <Button
+            variant={showChat ? "default" : "outline"}
+            onClick={onChat}
+            className={`gap-2 ${showChat ? "bg-blue-600 text-white hover:bg-blue-700" : ""}`}
+          >
+            <ChatBubbleLeftRightIcon className="h-5 w-5" />
+            <span className="hidden sm:inline">Chat</span>
+          </Button>
+        )}
 
         {/* Settings Button */}
         <Button

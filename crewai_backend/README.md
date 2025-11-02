@@ -8,9 +8,12 @@ Python backend service for CrewAI multi-agent operations, connected to Next.js f
 
 ```bash
 cd crewai_backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+py -3.11 -m venv venv
+venv\Scripts\activate  # On Windows
+py -3.11 -m pip install -r requirements.txt
+# Or if using uv (recommended):
+# py -3.11 -m pip install uv
+# uv sync  # Note: may fail if Rust is needed for some dependencies
 ```
 
 2. **Configure environment variables:**
@@ -36,9 +39,10 @@ cp .env.example .env
 # must run the server
 
 ```bash
-python main.py
+# Use Python 3.11 specifically (py defaults to a different version)
+py -3.11 server.py
 # Or with uvicorn directly:
-uvicorn agents.agent:app --reload --port 8000
+py -3.11 -m uvicorn server:app --reload --port 8000
 ```
 
 The server will run on `http://localhost:8000`

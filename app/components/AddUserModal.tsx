@@ -103,18 +103,43 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
   addedUsers,
   isOpen 
 }) => {
-  // Preload images when modal is about to open
+  // Preload images when modal is about to open (with error handling)
   useEffect(() => {
     if (isOpen) {
+      const links: HTMLLinkElement[] = [];
       users.forEach((user) => {
         if (user.avatar_url) {
+          // Skip broken placeholder URLs
+          if (user.avatar_url.includes('via.placeholder.com')) {
+            return; // Skip placeholder URLs that aren't resolving
+          }
+          
           const link = document.createElement('link');
           link.rel = 'preload';
           link.as = 'image';
           link.href = user.avatar_url;
+          
+          // Add error handling
+          link.onerror = () => {
+            // Remove broken preload link
+            if (document.head.contains(link)) {
+              document.head.removeChild(link);
+            }
+          };
+          
           document.head.appendChild(link);
+          links.push(link);
         }
       });
+      
+      // Cleanup: remove preload links when modal closes
+      return () => {
+        links.forEach(link => {
+          if (document.head.contains(link)) {
+            document.head.removeChild(link);
+          }
+        });
+      };
     }
   }, [isOpen, users]);
 
