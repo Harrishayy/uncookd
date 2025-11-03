@@ -294,11 +294,21 @@ def create_professor_agent(
         As the teacher, you are the ONLY agent with access to the whiteboard tool.
         When a visual aid is needed to help explain a concept, you will use the 
         `generate_whiteboard_visual` tool to create visual representations on the whiteboard.
-        Other agents can suggest what should be on the whiteboard, but only you can actually change it.""",
+        Other agents can suggest what should be on the whiteboard, but only you can actually change it.
+        
+        CRITICAL: Your voice responses should be conversational and focused on explanation. 
+        Visual instructions, drawing details, and layout specifications belong ONLY in the 
+        whiteboard tool's Action Input, never in your voice response. Keep your spoken words 
+        natural and instructional, while putting all visual specifications in the tool.
+        
+        IMPORTANT FORMAT RULES: When you finish responding, you MUST use this exact format:
+        - If using a tool: Thought: [your reasoning] → Action: [tool_name] → Action Input: [tool_params]
+        - If done: Thought: [your reasoning] → Final Answer: [your complete response]
+        NEVER output just "Thought:" without Action or Final Answer.""",
         verbose=True,
         allow_delegation=True,  # Can delegate tasks to the Analyst or Thinker
         max_iter=3,  # Limit iterations to prevent infinite loops
-        max_retry_limit=2,  # Limit retries on format errors
+        max_retry_limit=1,  # Limit retries on format errors (reduced to prevent loops)
     )
 
 
@@ -327,11 +337,16 @@ def create_subject_expert_agent(
         (e.g., 'solving y=x^2-4'), you can suggest what should be visualized, but 
         you do NOT have access to the whiteboard tool. Only the professor/teacher 
         can actually change the whiteboard. If you think a visual would help, 
-        describe what should be shown and suggest the professor add it to the whiteboard.""",
+        describe what should be shown and suggest the professor add it to the whiteboard.
+        
+        IMPORTANT FORMAT RULES: When you finish responding, you MUST use this exact format:
+        - If using a tool: Thought: [your reasoning] → Action: [tool_name] → Action Input: [tool_params]
+        - If done: Thought: [your reasoning] → Final Answer: [your complete response]
+        NEVER output just "Thought:" without Action or Final Answer.""",
         verbose=True,
         allow_delegation=False,  # Focuses on its task
         max_iter=3,  # Limit iterations to prevent infinite loops
-        max_retry_limit=2,  # Limit retries on format errors
+        max_retry_limit=1,  # Limit retries on format errors (reduced to prevent loops)
     )
 
 
@@ -357,11 +372,16 @@ def create_devils_advocate_agent(challenge_level: str = "moderate"):
         You are not adversarial for the sake of it; your purpose is to strengthen 
         everyone's understanding by ensuring no one takes shortcuts in their reasoning.
         You will often say, 'Are we sure about that?' or 'What evidence supports that claim?' 
-        or 'What if we look at it from this angle...?'""",
+        or 'What if we look at it from this angle...?'
+        
+        IMPORTANT FORMAT RULES: When you finish responding, you MUST use this exact format:
+        - If using a tool: Thought: [your reasoning] → Action: [tool_name] → Action Input: [tool_params]
+        - If done: Thought: [your reasoning] → Final Answer: [your complete response]
+        NEVER output just "Thought:" without Action or Final Answer.""",
         verbose=True,
         allow_delegation=False,
         max_iter=3,  # Limit iterations to prevent infinite loops
-        max_retry_limit=2,  # Limit retries on format errors
+        max_retry_limit=1,  # Limit retries on format errors (reduced to prevent loops)
     )
 
 
@@ -381,11 +401,16 @@ def create_peer_student_agent(background: str = "curious learner"):
         You are not afraid to ask 'dumb questions' (e.g., 'Sorry, can we go back? 
         I'm lost.') which helps make the classroom a safe space for the user.
         You can also offer peer feedback, saying 'That's a great way to put it!' 
-        or 'I'm not sure I follow your logic there.'""",
+        or 'I'm not sure I follow your logic there.'
+        
+        IMPORTANT FORMAT RULES: When you finish responding, you MUST use this exact format:
+        - If using a tool: Thought: [your reasoning] → Action: [tool_name] → Action Input: [tool_params]
+        - If done: Thought: [your reasoning] → Final Answer: [your complete response]
+        NEVER output just "Thought:" without Action or Final Answer.""",
         verbose=True,
         allow_delegation=False,
         max_iter=3,  # Limit iterations to prevent infinite loops
-        max_retry_limit=2,  # Limit retries on format errors
+        max_retry_limit=1,  # Limit retries on format errors (reduced to prevent loops)
     )
 
 
@@ -405,11 +430,16 @@ def create_interdisciplinary_connector_agent():
         parabolic shape appears in architecture (art). If the topic is the 
         French Revolution (history), you might connect it to the rise of 
         Enlightenment philosophy (ideas). Your goal is to widen the user's 
-        perspective.""",
+        perspective.
+        
+        IMPORTANT FORMAT RULES: When you finish responding, you MUST use this exact format:
+        - If using a tool: Thought: [your reasoning] → Action: [tool_name] → Action Input: [tool_params]
+        - If done: Thought: [your reasoning] → Final Answer: [your complete response]
+        NEVER output just "Thought:" without Action or Final Answer.""",
         verbose=True,
         allow_delegation=False,
         max_iter=3,  # Limit iterations to prevent infinite loops
-        max_retry_limit=2,  # Limit retries on format errors
+        max_retry_limit=1,  # Limit retries on format errors (reduced to prevent loops)
     )
 
 
@@ -451,12 +481,21 @@ def create_discussion_task(
     if whiteboard_aware:
         if is_professor:
             whiteboard_instruction = """
-        As the teacher, you have access to the whiteboard tool. If relevant, use the generate_whiteboard_visual 
-        tool to create visual representations on the whiteboard to aid understanding.
-        Reference any existing whiteboard content when making your points.
-        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), 
-        e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
-        If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
+        CRITICAL: Separate your voice response from whiteboard tool usage:
+        
+        1. **Voice Response (Final Answer)**: Keep it conversational and focused on the discussion. 
+           Do NOT include detailed drawing instructions, layout descriptions, or step-by-step visual directions 
+           in your voice response. Just discuss naturally as if speaking.
+        
+        2. **Whiteboard Tool**: Use the generate_whiteboard_visual tool when you need to create visual aids. 
+           Put ALL visual specifications, drawing instructions, layout details, and diagram descriptions 
+           INSIDE the tool's Action Input as a Python dict (not a JSON string).
+           
+        IMPORTANT FORMATTING RULES:
+        - Voice response: Conversational, discusses concepts - NO visual instructions
+        - Tool Action Input: Contains ALL visual details, specifications, and drawing requirements
+        - When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string)
+        - If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}"""
         else:
             whiteboard_instruction = """
         If relevant, suggest what could be visualized on the whiteboard to aid understanding.
@@ -473,11 +512,16 @@ def create_discussion_task(
         {context_str}
         
         Provide a thoughtful, conversational response that contributes meaningfully to the discussion.
-        Keep your response concise (under 300 words) to maintain engagement.
+        CRITICAL TIME LIMIT: Keep your response under 100 words (approximately 30 seconds when spoken).
+        This ensures concise, focused contributions that don't dominate the conversation.
+        Aim for 2-3 sentences that make a clear point or add value to the discussion.
+        
         If you're a moderator, guide the conversation. If you're an expert, provide insights.
-        If you're a challenger, ask critical questions. If you're a student, ask questions and share thoughts.""",
+        If you're a challenger, ask critical questions. If you're a student, ask questions and share thoughts.
+        
+        Remember: Multiple agents are participating. Keep responses brief (under 100 words, ~30 seconds max).""",
         agent=agent,
-        expected_output="A concise conversational response (under 300 words) that contributes to the discussion, potentially including whiteboard suggestions",
+        expected_output="A concise conversational response (under 100 words, ~30 seconds spoken) that contributes to the discussion, potentially including whiteboard suggestions",
         tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 
@@ -541,12 +585,24 @@ def create_explanation_task(
     if include_visuals:
         if is_professor:
             visual_instruction = """
-        As the teacher, you have access to the whiteboard tool. Use the generate_whiteboard_visual 
-        tool to create visual representations on the whiteboard to help visualize this concept
-        (e.g., graphs, diagrams, step-by-step solutions).
-        IMPORTANT: When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string), 
-        e.g. {"topic": "y = x^2 + 4x + 4", "content_type": "graph", "context": "Plot and mark vertex and roots.", "desmos": true}.
-        If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}."""
+        CRITICAL: Separate your voice response from whiteboard tool usage:
+        
+        1. **Voice Response (Final Answer)**: Keep it conversational and focused on explaining the concept. 
+           Do NOT include detailed drawing instructions, layout descriptions, or step-by-step visual directions 
+           in your voice response. Just explain the concept naturally as if speaking to a student.
+        
+        2. **Whiteboard Tool**: Use the generate_whiteboard_visual tool when you need to create visual aids. 
+           Put ALL visual specifications, drawing instructions, layout details, and diagram descriptions 
+           INSIDE the tool's Action Input as a Python dict (not a JSON string).
+           
+        Example tool usage:
+        - Action Input: {"topic": "Tree diagram for probability", "content_type": "diagram", "context": "First branch: French (45%), Spanish (35%), German (20%). Second branch: Pass/Fail with probabilities for each language.", "desmos": false}
+        
+        IMPORTANT FORMATTING RULES:
+        - Voice response: Conversational, explains concepts, asks questions - NO visual instructions
+        - Tool Action Input: Contains ALL visual details, specifications, and drawing requirements
+        - When using generate_whiteboard_visual, pass a Python dict Action Input (not a JSON string)
+        - If you only have a single string, use generate_whiteboard_visual_flex with Action Input {"payload": "<your JSON string or expression>"}"""
         else:
             visual_instruction = """
         You can suggest what should be displayed on the whiteboard to help visualize this concept
@@ -561,9 +617,10 @@ def create_explanation_task(
         {visual_instruction}
         
         Make your explanation clear, intuitive, and engaging.
-        Keep your response concise (under 500 words, approximately 3-4 minutes when spoken).""",
+        Keep your voice response conversational and focused on the concept - visual instructions belong in the whiteboard tool only.
+        Keep your response concise (under 300 words, approximately 2 minutes when spoken).""",
         agent=agent,
-        expected_output=f"A clear, concise explanation of {concept} (under 500 words, approximately 3-4 minutes when spoken) appropriate for {audience_level} students, with visual suggestions if relevant",
+        expected_output=f"A clear, conversational explanation of {concept} (under 300 words, approximately 2-2.5 minutes when spoken) appropriate for {audience_level} students. Voice response explains concepts conversationally - visual details go in whiteboard tool, not in voice response.",
         tools=task_tools if task_tools else [],  # Only include tools if relevant
     )
 

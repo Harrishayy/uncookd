@@ -44,3 +44,4 @@ The `/api/generate-response` endpoint was added to `crewai_backend/agents/agent.
 - Extracts whiteboard_data from responses
 - Returns audio and whiteboard data to frontend
 
+

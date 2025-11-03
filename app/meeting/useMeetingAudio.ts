@@ -65,9 +65,17 @@ export default function useMeetingAudio(
 
   const startTranscriptionForStream = async (stream: MediaStream) => {
     try {
+      // Optimized buffer to accumulate ALL speech before sending to agent
+      // Adaptive timing: faster for longer sentences, normal for shorter ones
+      let speechBuffer = "";
+      let bufferTimer: ReturnType<typeof setTimeout> | null = null;
+      const BUFFER_SILENCE_DURATION = 2000; // Reduced to 2s for faster response
+      const ADAPTIVE_BUFFER_DURATION = 1000; // 1s for longer sentences
+      const MIN_SPEECH_LENGTH = 30; // Require at least 15 characters (3-4 words minimum)
+      
       const webRec = startLiveTranscriptionWithWebSpeech(
         (text, isFinal) => {
-          const entry: TranscriptEntry = { text, isFinal, timestamp: Date.now() };
+          const entry: TranscriptEntry = { text, isFinal: isFinal ?? false, timestamp: Date.now() };
           setTranscript(prev => [...prev, entry]);
           // Log transcript when received
           const timestamp = new Date(entry.timestamp).toLocaleTimeString();
@@ -75,13 +83,77 @@ export default function useMeetingAudio(
             `[Speech Recognition ${entry.isFinal ? '✓ FINAL' : '⏳ INTERIM'}] ${timestamp}:`,
             text
           );
-          options?.onTranscription?.(entry);
+          
+          // Always accumulate text into buffer - use longest version for completeness
+          if (text.trim()) {
+            // Always prefer longer text (more complete)
+            if (text.length > speechBuffer.length || !speechBuffer) {
+              speechBuffer = text.trim();
+            }
+            
+            // Log periodically (not on every update to reduce noise)
+            if (speechBuffer.length % 10 === 0 || text.length > speechBuffer.length - 5) {
+              console.log(`[Speech Buffer] Accumulated: "${speechBuffer.substring(0, 50)}${speechBuffer.length > 50 ? '...' : ''}" (${speechBuffer.length} chars)`);
+            }
+          }
+          
+          // Clear existing timer - we'll restart it with adaptive duration
+          if (bufferTimer) {
+            clearTimeout(bufferTimer);
+            bufferTimer = null;
+          }
+          
+          // Adaptive buffer duration: faster for longer sentences (likely complete)
+          const bufferDuration = speechBuffer.length > 50 
+            ? ADAPTIVE_BUFFER_DURATION  // 1s for longer sentences
+            : BUFFER_SILENCE_DURATION;  // 2s for shorter phrases
+          
+          // Only send after sufficient silence and meaningful length
+          if (speechBuffer.trim().length >= MIN_SPEECH_LENGTH && (isFinal ?? false)) {
+            bufferTimer = setTimeout(() => {
+              // Final check - ensure we still have good speech
+              if (speechBuffer.trim().length >= MIN_SPEECH_LENGTH) {
+                console.log(`[Speech Buffer] ✓ Sending accumulated speech to agent: "${speechBuffer}"`);
+                const finalEntry: TranscriptEntry = {
+                  text: speechBuffer.trim(),
+                  isFinal: true,
+                  timestamp: Date.now()
+                };
+                options?.onTranscription?.(finalEntry);
+                // Clear buffer after sending
+                speechBuffer = "";
+              }
+              bufferTimer = null;
+            }, bufferDuration);
+          } else if ((isFinal ?? false) && speechBuffer.trim().length >= 10) {
+            // Even shorter speech - use minimum wait
+            bufferTimer = setTimeout(() => {
+              if (speechBuffer.trim().length >= 10) {
+                console.log(`[Speech Buffer] Sending short speech: "${speechBuffer}"`);
+                const finalEntry: TranscriptEntry = {
+                  text: speechBuffer.trim(),
+                  isFinal: true,
+                  timestamp: Date.now()
+                };
+                options?.onTranscription?.(finalEntry);
+                speechBuffer = "";
+              }
+              bufferTimer = null;
+            }, ADAPTIVE_BUFFER_DURATION); // Faster for short speech too
+          }
         },
         (err) => {
           // Only log errors that aren't network-related (network errors are common and handled automatically)
           if (err?.error && err.error !== 'network' && err.error !== 'aborted') {
             console.warn("Speech recognition error:", err.error, err.message || '');
           }
+        },
+        "en-US",
+        {
+          stream: stream, // Pass stream for audio level monitoring
+          silenceDurationMs: 1500, // Reduced to 1.5s for faster response
+          audioLevelThreshold: 20, // Lower threshold for quieter speech
+          minTranscriptLength: 15, // Minimum characters to consider valid
         }
       );
       if (webRec?.available) {
@@ -171,6 +243,15 @@ export default function useMeetingAudio(
       speechRecognitionControllerRef,
     });
 
+  // Expose transcription controller refs for external checks
+  const getTranscriptionStatus = () => {
+    return {
+      isActive: speechRecognitionControllerRef.current?.available || recorderControllerRef.current?.isRecording?.() || false,
+      speechRecognition: speechRecognitionControllerRef.current,
+      recorder: recorderControllerRef.current,
+    };
+  };
+
   return {
     muted,
     deafened,
@@ -184,5 +265,6 @@ export default function useMeetingAudio(
     startAudioLevelMonitoring,
     startTranscriptionForStream,
     stopTranscription,
+    getTranscriptionStatus,
   };
 }

@@ -4,6 +4,7 @@ import { AgentHelpers } from '../AgentHelpers'
 import { AreaContextItem } from '../types/ContextItem'
 import { Streaming } from '../types/Streaming'
 import { AgentActionUtil } from './AgentActionUtil'
+import { checkCompletion, getCompletionReport, CompletionCheckResult } from '../CompletionChecker'
 
 const ReviewAction = z
 	.object({
@@ -63,17 +64,71 @@ export class ReviewActionUtil extends AgentActionUtil<ReviewAction> {
 			? Box.From(scheduledRequest.bounds).union(reviewBounds)
 			: reviewBounds
 
-		// Schedule the review
+		// Run completion check to provide concrete feedback
+		const chatHistory = this.agent.$chatHistory.get()
+		const promptItems = chatHistory.filter((item) => item.type === 'prompt')
+		const originalPrompt =
+			promptItems.length > 0 && promptItems[promptItems.length - 1].type === 'prompt'
+				? (promptItems[promptItems.length - 1] as any).message
+				: ''
+
+		// Perform completion check
+		const completionResult = checkCompletion(
+			this.agent.editor,
+			originalPrompt,
+			chatHistory,
+			reviewBounds
+		)
+
+		// Get completion report to include in review message
+		const completionReport = getCompletionReport(completionResult, originalPrompt)
+
+		// Schedule the review with completion check results
+		const reviewMessage = getReviewMessage(action.intent, completionReport, completionResult)
+		
+		// If force continuation is needed, add a todo to ensure agent keeps working
+		if (completionResult && completionResult.forceContinuation && completionResult.continuationReasons.length > 0) {
+			// Add todo items for each unfulfilled intent to force continuation
+			completionResult.continuationReasons.slice(0, 3).forEach((reason) => {
+				this.agent?.addTodo(`Fulfill action intent: ${reason.substring(0, 100)}`)
+			})
+			console.log('[ReviewActionUtil] Force continuation - added todos to ensure agent keeps working')
+		}
+		
 		this.agent.schedule({
 			bounds,
-			message: getReviewMessage(action.intent),
+			message: reviewMessage,
 			contextItems: [contextArea],
 		})
 	}
 }
 
-function getReviewMessage(intent: string) {
+function getReviewMessage(
+	intent: string,
+	completionReport?: string,
+	completionResult?: CompletionCheckResult
+) {
+	let reportSection = ''
+	if (completionReport && completionResult) {
+		reportSection = `\n\n**AUTOMATED COMPLETION CHECK RESULTS:**\n\n${completionReport}\n\n`
+		
+		if (!completionResult.isComplete) {
+			reportSection += `⚠️ **CRITICAL**: The automated check found incomplete requirements. You MUST address these before finishing.\n\n`
+		}
+		
+		if (completionResult.forceContinuation && completionResult.continuationReasons.length > 0) {
+			reportSection += `\n🚨 **FORCE CONTINUATION REQUIRED**:\n\n`
+			reportSection += `**Action intents were NOT fulfilled on the canvas. You MUST continue working immediately and cannot finish until all action intents are verified as complete.**\n\n`
+			reportSection += `**Unfulfilled Action Intents:**\n`
+			completionResult.continuationReasons.forEach((reason) => {
+				reportSection += `- ${reason}\n`
+			})
+			reportSection += `\n`
+		}
+	}
+
 	return `Examine the actions that you (the agent) took since the most recent user message, with the intent: "${intent}". This is a SELF-REVIEW to verify completion.
+${reportSection}
 
 **YOU MUST COMPLETE THIS ENTIRE CHECKLIST BEFORE FINISHING:**
 

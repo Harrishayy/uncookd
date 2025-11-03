@@ -312,16 +312,28 @@ function BoardInner({
 
 	// Process prompt when it changes
 	useEffect(() => {
-		if (!agent || !agentPrompt || !editor) return
+		if (!agent || !agentPrompt || !editor) {
+			if (!agent) console.log('[Agent] Waiting for agent to be ready')
+			if (!agentPrompt) console.log('[Agent] No prompt provided')
+			if (!editor) console.log('[Agent] Waiting for editor to be ready')
+			return
+		}
 		
-		// Create a stable key for this prompt
+		// Create a stable key for this prompt (normalize whitespace)
 		const promptKey = typeof agentPrompt === 'string' 
 			? agentPrompt.trim()
 			: JSON.stringify(agentPrompt)
 		
-		// Skip if we've already processed this exact prompt
+		// Skip if we've already processed this exact prompt (but allow retries after delay)
 		if (processedPromptRef.current === promptKey) {
 			console.log('[Agent] Prompt already processed, skipping:', promptKey.substring(0, 50))
+			// Allow reprocessing after 5 seconds if it's the same prompt (in case of errors)
+			setTimeout(() => {
+				if (processedPromptRef.current === promptKey) {
+					console.log('[Agent] Re-enabling prompt for retry after timeout')
+					processedPromptRef.current = null
+				}
+			}, 5000)
 			return
 		}
 
@@ -329,11 +341,12 @@ function BoardInner({
 		processedPromptRef.current = promptKey
 
 		console.log('[Agent] Processing new prompt:', promptKey.substring(0, 100))
+		console.log('[Agent] Full prompt:', typeof agentPrompt === 'string' ? agentPrompt : JSON.stringify(agentPrompt, null, 2))
 
 		// Execute prompt (use original agentPrompt, not the cleaned key)
 		agent.prompt(agentPrompt)
 			.then(() => {
-				console.log('[Agent] Prompt completed')
+				console.log('[Agent] Prompt completed successfully')
 				// Don't reset processedPromptRef here - keep it so same prompt isn't reprocessed
 				if (onAgentComplete) {
 					onAgentComplete()

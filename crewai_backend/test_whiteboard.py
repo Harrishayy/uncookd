@@ -107,3 +107,4 @@ def test_whiteboard_extraction():
 if __name__ == "__main__":
     test_whiteboard_extraction()
 
+

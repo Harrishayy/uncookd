@@ -7,3 +7,4 @@ echo "Starting server from: $(pwd)"
 source .venv/bin/activate 2>/dev/null || echo "Virtual environment not found, using system Python"
 python agents/agent.py
 
+

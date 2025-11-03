@@ -21,6 +21,7 @@ import { AgentInput } from '../../shared/types/AgentInput'
 import { AgentPrompt, BaseAgentPrompt } from '../../shared/types/AgentPrompt'
 import { AgentRequest } from '../../shared/types/AgentRequest'
 import { ChatHistoryItem } from '../../shared/types/ChatHistoryItem'
+import { checkCompletion, getCompletionReport } from '../../shared/CompletionChecker'
 import {
 	AreaContextItem,
 	ContextItem,
@@ -344,6 +345,11 @@ export class TldrawAgent {
 	async prompt(input: AgentInput) {
 		const request = this.getFullRequestFromInput(input)
 
+		// Track initial state to detect if anything was created
+		const shapesBeforeRequest = this.editor.getCurrentPageShapes()
+		const shapeCountBefore = shapesBeforeRequest.length
+		const shapeIdsBefore = new Set(shapesBeforeRequest.map(s => s.id))
+
 		// Submit the request to the agent.
 		await this.request(request)
 		
@@ -355,54 +361,196 @@ export class TldrawAgent {
 			return
 		}
 
-		// After the request is handled, check if there are any outstanding todo items or requests
-		let scheduledRequest = this.$scheduledRequest.get()
-		const todoItemsRemaining = this.$todoList.get().filter((item) => item.status !== 'done')
-		const chatHistory = this.$chatHistory.get()
+		// Check if anything was actually created on the whiteboard
+		const shapesAfterRequest = this.editor.getCurrentPageShapes()
+		const shapeCountAfter = shapesAfterRequest.length
+		const shapeIdsAfter = new Set(shapesAfterRequest.map(s => s.id))
 		
-		// Get the most recent user prompt from chat history (the original request for current task)
-		// Find the last prompt item in reverse order (most recent first)
+		// Calculate new shapes created during this request
+		const newShapes = shapesAfterRequest.filter(s => !shapeIdsBefore.has(s.id))
+		const hasNewShapes = newShapes.length > 0
+		
+		// Check if canvas was empty before and is still empty, or if no new shapes were created
+		const wasEmptyBefore = shapeCountBefore === 0
+		const isEmptyAfter = shapeCountAfter === 0
+		const nothingCreated = !hasNewShapes && (wasEmptyBefore || isEmptyAfter)
+		
+		// Get the original user prompt for retry logic
+		const chatHistory = this.$chatHistory.get()
 		const promptItems = chatHistory.filter(item => item.type === 'prompt')
 		const originalPromptItem = promptItems.length > 0 ? promptItems[promptItems.length - 1] : null
 		const originalUserPrompt = originalPromptItem && originalPromptItem.type === 'prompt'
 			? (originalPromptItem as any)?.message 
 			: null
 
+		// If nothing was created and we have an original prompt, retry it
+		if (nothingCreated && originalUserPrompt) {
+			console.log('[Agent] No shapes were created - canvas is empty or nothing was drawn. Retrying original prompt.')
+			console.log(`[Agent] Shapes before: ${shapeCountBefore}, after: ${shapeCountAfter}, new: ${newShapes.length}`)
+			
+			// Check if we've already retried this (to prevent infinite loops)
+			const recentHistory = chatHistory.slice(-10)
+			const retryCount = recentHistory.filter(item => 
+				item.type === 'continuation' && 
+				(item as any).data?.some?.((d: any) => d?.includes?.('RETRY - Nothing was created'))
+			).length
+			
+			if (retryCount < 2) {
+				// Retry the original prompt with a stronger message
+				const retryMessage = retryCount === 0 
+					? `⚠️ **RETRY - Nothing was created on the whiteboard**
+
+**ORIGINAL REQUEST:** "${originalUserPrompt}"
+
+**PROBLEM**: No shapes were created on the canvas after your previous attempt. The whiteboard is ${isEmptyAfter ? 'still empty' : 'unchanged'}.
+
+**YOU MUST NOW:**
+1. **Create the requested content immediately** - Start drawing right away
+2. **Use create actions** - Generate at least one \`create\` action for the requested content
+3. **Do NOT just use think or review actions** - You must actually create shapes on the canvas
+4. **Check your actions** - Make sure you're using \`create\` actions, not just planning
+
+**CRITICAL**: If you only used \`think\` or \`review\` actions without creating anything, you MUST create the actual content now.`
+					: `🚨 **SECOND RETRY - CRITICAL: Nothing Created**
+
+**ORIGINAL REQUEST:** "${originalUserPrompt}"
+
+**CRITICAL PROBLEM**: This is attempt #${retryCount + 1} and still NO shapes were created on the whiteboard.
+
+**YOU ABSOLUTELY MUST:**
+1. **Create at least ONE shape** - Use a \`create\` action immediately
+2. **Stop using only think/review actions** - You MUST create actual content
+3. **Start with the simplest element** - Even if it's just a single shape or text
+4. **Verify your actions** - Make sure \`create\` actions are in your response
+
+**STOP PLANNING AND START CREATING**. The system will keep retrying until you actually create something on the canvas.`
+
+				// Retry with original prompt
+				await this.prompt({
+					messages: [retryMessage],
+					contextItems: request.contextItems,
+					bounds: request.bounds,
+					modelName: request.modelName,
+					selectedShapes: request.selectedShapes,
+					data: request.data,
+				})
+				return
+			} else {
+				console.log('[Agent] Maximum retry attempts reached - stopping to prevent infinite loop')
+				// Don't retry again to prevent infinite loops
+			}
+		}
+
+		// After the request is handled, check if there are any outstanding todo items or requests
+		let scheduledRequest = this.$scheduledRequest.get()
+		const todoItemsRemaining = this.$todoList.get().filter((item) => item.status !== 'done')
+		
+		// originalUserPrompt was already retrieved above (before retry check) - reuse it
+
 		if (!scheduledRequest) {
 			// If there no outstanding todo items or requests, finish
 			if (todoItemsRemaining.length === 0) {
-				// AUTOMATIC VERIFICATION: If all todos are done but no review was performed in this session,
-				// automatically schedule a verification review to ensure all conditions are met
-				const recentActions = chatHistory
-					.filter(item => item.type === 'action')
-					.slice(-20) // Check last 20 actions
-				const hasReviewAction = recentActions.some((item: any) => 
-					item.action?._type === 'review'
-				)
-				
-				// If no review was done recently and we have an original prompt, require verification
-				if (!hasReviewAction && originalUserPrompt) {
-					console.log('[Agent] All todos done - scheduling automatic verification review')
-					scheduledRequest = {
-						messages: [`CRITICAL AUTOMATIC VERIFICATION: All todo items are marked as "done", but you MUST verify that ALL requirements from the original user request have been met before finishing.
+				// ALWAYS run completion check when todos are done (not just when no review action)
+				// This ensures we catch unfulfilled intents even after the agent thinks it's done
+				if (originalUserPrompt) {
+					console.log('[Agent] All todos done - running automatic completion check')
+					
+					// Run completion check before scheduling review
+					const completionResult = checkCompletion(
+						this.editor,
+						originalUserPrompt,
+						chatHistory,
+						request.bounds ? Box.From(request.bounds) : undefined
+					)
+					
+					const completionReport = getCompletionReport(completionResult, originalUserPrompt)
+					
+					if (!completionResult.isComplete) {
+						console.log('[Agent] Completion check found missing requirements, scheduling verification review')
+						
+						// When forceContinuation is true, add todos FIRST to prevent finishing
+						const isForceContinuation = completionResult.forceContinuation
+						if (isForceContinuation && completionResult.continuationReasons.length > 0) {
+							// Add todo items BEFORE creating scheduled request so they're counted
+							completionResult.continuationReasons.slice(0, 5).forEach((reason) => {
+								const shortReason = reason.length > 80 ? reason.substring(0, 80) + '...' : reason
+								this.addTodo(`FULFILL ACTION INTENT: ${shortReason}`)
+							})
+							this.addTodo(`Complete ${completionResult.continuationReasons.length} unfulfilled action intent(s) on canvas`)
+							console.log('[Agent] Added todos to force continuation - agent must complete action intents')
+						}
+						
+						// Build continuation message - force continuation if action intents not fulfilled
+						let continuationMessage = ''
+						if (isForceContinuation && completionResult.continuationReasons.length > 0) {
+							continuationMessage = `\n\n🚨 **FORCE CONTINUATION - ACTION INTENTS NOT FULFILLED**:\n\n`
+							continuationMessage += `**You MUST continue working immediately.** The automated check found that action intents were NOT fulfilled on the canvas:\n\n`
+							completionResult.continuationReasons.forEach((reason) => {
+								continuationMessage += `- ${reason}\n`
+							})
+							continuationMessage += `\n**You CANNOT finish until these action intents are verified as complete on the canvas.**\n`
+							continuationMessage += `\n**IMPORTANT**: You now have todo items for each unfulfilled intent. You MUST create the actual content (shapes, labels, etc.) to fulfill each intent. Simply marking todos as "done" without creating the content will cause the system to detect the intents are still unfulfilled.\n`
+						}
+						
+						scheduledRequest = {
+							messages: [isForceContinuation ? `🚨 **MANDATORY CONTINUATION - ACTION REQUIRED NOW**
+
+**STOP - DO NOT FINISH.** The automated completion check found that your previous action intents were NOT fulfilled on the canvas. You MUST continue working immediately.
 
 **ORIGINAL USER REQUEST:** "${originalUserPrompt}"
 
-You MUST:
-1. Use a \`review\` action to visually verify the canvas matches ALL requirements from the original request
-2. List each requirement from the original request and verify it's present
-3. Check that all action intents were fulfilled
-4. Only finish if EVERYTHING is complete
+${completionReport}
+${continuationMessage}
 
-If ANY requirement is missing, you MUST create additional actions to complete it. Do NOT finish until everything is verified.`],
-						contextItems: request.contextItems,
-						bounds: request.bounds,
-						modelName: request.modelName,
-						selectedShapes: request.selectedShapes,
-						data: request.data,
-						type: 'verification',
+**YOU MUST DO THE FOLLOWING IMMEDIATELY (in this order):**
+1. **Create the missing content** - Look at the unfulfilled action intents listed above and create the actions needed to fulfill them
+2. **Do NOT use a review action first** - Start creating content immediately. Each unfulfilled intent needs a corresponding create/update action.
+3. **After creating content**, use a \`review\` action to verify it was created correctly
+4. **Keep working** until ALL action intents are fulfilled and verified on the canvas
+5. **Do NOT send a completion message** until the completion check passes
+
+**REMEMBER**: You cannot finish until every action intent is verified as complete on the canvas. Start creating the missing content NOW.` : `CRITICAL AUTOMATIC VERIFICATION: All todo items are marked as "done", but the automated completion check found INCOMPLETE requirements.
+
+**ORIGINAL USER REQUEST:** "${originalUserPrompt}"
+
+${completionReport}
+${continuationMessage}
+
+⚠️ **REQUIRED ACTIONS:**
+1. Use a \`review\` action to visually verify the canvas matches ALL requirements from the original request
+2. Address ALL incomplete requirements listed above
+3. Create additional actions to complete any missing parts
+4. ${completionResult.forceContinuation ? '**FORCE CONTINUATION**: You MUST continue working - action intents were not fulfilled.' : ''}Do NOT finish until EVERYTHING is complete and verified
+
+The automated check has identified specific missing requirements - you must address each one.`],
+							contextItems: request.contextItems,
+							bounds: request.bounds,
+							modelName: request.modelName,
+							selectedShapes: request.selectedShapes,
+							data: request.data,
+							type: 'verification',
+						}
+					} else {
+						console.log('[Agent] Completion check passed - all requirements met')
+						// Schedule a quick verification to confirm
+						scheduledRequest = {
+							messages: [`VERIFICATION: All todo items are complete and automated check confirms all requirements are met.
+
+**ORIGINAL USER REQUEST:** "${originalUserPrompt}"
+
+${completionReport}
+
+Please do a final visual verification using a \`review\` action to confirm everything matches the original request before finishing.`],
+							contextItems: request.contextItems,
+							bounds: request.bounds,
+							modelName: request.modelName,
+							selectedShapes: request.selectedShapes,
+							data: request.data,
+							type: 'verification',
+						}
 					}
 				} else {
+					// No original prompt - allow finishing
 					return
 				}
 			}

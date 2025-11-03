@@ -760,22 +760,54 @@ async def study_help(request: StudyHelpRequest):
         crew.tasks = tasks
 
         # Execute - this is where agents actually process the user's input
-        # Wrap in try-catch to handle CrewAI parsing errors gracefully
+        # Wrap in try-catch to handle CrewAI parsing errors gracefully with content extraction
         try:
             result = crew.kickoff()
         except Exception as crew_error:
-            # Check if it's a parsing/format error (common CrewAI retry loop issue)
             error_str = str(crew_error).lower()
+            # Check if it's a parsing/format error
             if "parsing" in error_str or "invalid format" in error_str or "retry" in error_str:
-                print(f"[study_help] CrewAI parsing/format error occurred: {crew_error}")
+                print(f"[study_help] CrewAI parsing error: {crew_error}")
+                
+                # Try to extract usable content from error message as fallback
+                error_msg = str(crew_error)
+                extracted_answer = None
+                
+                # Look for "Thought:" content in error message
+                if "thought:" in error_msg.lower():
+                    import re
+                    # Try to find thought content
+                    thought_match = re.search(r'thought:\s*(.+?)(?:\n\n|final answer|action:|$)', error_msg, re.IGNORECASE | re.DOTALL)
+                    if thought_match:
+                        extracted_thought = thought_match.group(1).strip()
+                        # Clean up common error text
+                        extracted_thought = re.sub(r'i did it wrong.*?invalid format.*?', '', extracted_thought, flags=re.IGNORECASE | re.DOTALL)
+                        extracted_thought = re.sub(r'i missed.*?', '', extracted_thought, flags=re.IGNORECASE)
+                        extracted_thought = extracted_thought.strip()
+                        if extracted_thought and len(extracted_thought) > 10:
+                            extracted_answer = extracted_thought
+                
+                # If we extracted usable content, use it as fallback
+                if extracted_answer:
+                    execution_time = time.time() - start_time
+                    return StudyHelpResponse(
+                        success=True,
+                        answer=extracted_answer,
+                        agent_responses=[{"agent": "assistant", "message": extracted_answer}],
+                        visual_suggestions=None,
+                        whiteboard_data=None,
+                        execution_time=execution_time,
+                    )
+                
+                # If no usable content, return user-friendly error
                 execution_time = time.time() - start_time
                 return StudyHelpResponse(
                     success=False,
-                    answer="An error has occurred.",
+                    answer="I encountered a formatting issue. Please try rephrasing your question.",
                     agent_responses=None,
                     visual_suggestions=None,
                     whiteboard_data=None,
-                    error="An error has occurred.",
+                    error="Format parsing error",
                     execution_time=execution_time,
                 )
             else:
@@ -1453,6 +1485,16 @@ async def generate_response(body: TranscriptRequest):
     
     print(f"[generate-response] Speaking user: {speaking_user}, Meeting users: {meeting_users}, Available agents: {available_agent_roles}")
     
+    # Auto-detect discussion mode: if multiple agents available, use discussion mode
+    # Discussion mode allows agents to interact and have shorter, focused responses
+    num_available_agents = len(available_agent_roles)
+    help_type = "discussion" if num_available_agents > 1 else "explanation"
+    
+    if num_available_agents > 1:
+        print(f"[generate-response] Multiple agents detected ({num_available_agents}) - switching to DISCUSSION mode")
+    else:
+        print(f"[generate-response] Single agent detected - using EXPLANATION mode")
+    
     try:
         # Use agent_runner to process the transcript
         if run_agent:
@@ -1468,7 +1510,7 @@ async def generate_response(body: TranscriptRequest):
                 mode="direct",
                 topic=user_message,
                 subject="general",  # Can be extracted from context if needed
-                help_type="explanation",
+                help_type=help_type,  # Auto-switch to discussion if multiple agents
                 agent=None,  # Auto-select appropriate agent
                 extra=extra_context,
             )
@@ -1524,6 +1566,26 @@ async def generate_response(body: TranscriptRequest):
                 whiteboard_data = resp_dict.get("whiteboard_data")
                 agent_responses = resp_dict.get("agent_responses", [])
                 
+                # Truncate agent responses for discussion mode (30-second limit per agent)
+                if help_type == "discussion" and agent_responses:
+                    for agent_resp in agent_responses:
+                        if isinstance(agent_resp, dict) and "message" in agent_resp:
+                            message = agent_resp["message"]
+                            if message:
+                                words = str(message).split()
+                                if len(words) > 100:
+                                    original_length = len(message)
+                                    agent_resp["message"] = " ".join(words[:100]) + "..."
+                                    print(f"[generate-response] Discussion mode: truncated agent {agent_resp.get('agent', 'Unknown')} response from {original_length} chars to {len(agent_resp['message'])} chars (max 100 words)")
+                
+                # Truncate main response text for discussion mode
+                if help_type == "discussion" and response_text:
+                    words = response_text.split()
+                    if len(words) > 100:
+                        original_length = len(response_text)
+                        response_text = " ".join(words[:100]) + "..."
+                        print(f"[generate-response] Discussion mode: truncated main response from {original_length} chars to {len(response_text)} chars (max 100 words for 30-second limit)")
+                
                 # Try to get OGG file path from result
                 ogg_path = result.get("ogg_path")
                 audio_base64 = None
@@ -1561,6 +1623,14 @@ async def generate_response(body: TranscriptRequest):
                 print(f"[generate-response] Extracted response_text: {response_text[:100] if response_text else 'None'}...")
                 print(f"[generate-response] Audio available: {bool(audio_base64)}")
                 
+                # Extract speaking agent name for frontend display
+                speaking_agent_name = None
+                if agent_responses and len(agent_responses) > 0:
+                    first_response = agent_responses[0]
+                    if isinstance(first_response, dict):
+                        speaking_agent_name = first_response.get("agent")
+                        print(f"[generate-response] Speaking agent: {speaking_agent_name}")
+                
                 if whiteboard_data:
                     print(f"[generate-response] Whiteboard data found: {whiteboard_data.get('type', 'unknown') if isinstance(whiteboard_data, dict) else 'present'}")
                 
@@ -1578,7 +1648,8 @@ async def generate_response(body: TranscriptRequest):
                     "response_transcript": response_text,  # Transcript of what's in audio (same as response_text)
                     "audio": audio_base64,  # base64 encoded audio bytes (OGG format)
                     "whiteboard_data": whiteboard_data,  # Whiteboard tool output JSON (for TldrawBoardEmbedded)
-                    "agent_responses": agent_responses  # List of agent responses for whiteboard prompts
+                    "agent_responses": agent_responses,  # List of agent responses for whiteboard prompts
+                    "speaking_agent": speaking_agent_name  # Name of agent currently speaking (for UI display)
                 }
         else:
             # Fallback if agent_runner is not available
@@ -1685,36 +1756,25 @@ async def transform_whiteboard_prompt(body: WhiteboardPromptTransformRequest):
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
             
-            # Try gemini-2.0-flash-exp first, fallback to gemini-2.0-flash or gemini-1.5-flash
-            model_name = "gemini-2.0-flash-exp"  # Gemini 2.0 Flash experimental
+            # Try gemini-2.0-flash first, fallback to gemini-1.5-flash
+            model_name = "gemini-2.0-flash"
             try:
                 llm = ChatGoogleGenerativeAI(
                     model=model_name,
-                    temperature=0.3,
+                    temperature=0.3,  # Slightly higher for more creative but still focused visual descriptions
                     google_api_key=gemini_api_key,
-                    max_output_tokens=500,  # Limit output to keep it concise (max 2 sentences)
+                    max_output_tokens=400,  # Increased to allow for complete process descriptions (3-4 sentences for complex processes)
                 )
-                # Test if model is available by creating it
-                _ = llm.model_name
             except Exception as e:
-                print(f"[transform-prompt] Model {model_name} not available, trying gemini-2.0-flash: {e}")
-                try:
-                    model_name = "gemini-2.0-flash"
-                    llm = ChatGoogleGenerativeAI(
-                        model=model_name,
-                        temperature=0.3,
-                        google_api_key=gemini_api_key,
-                        max_output_tokens=500,
-                    )
-                except Exception:
-                    # Final fallback to gemini-1.5-flash
-                    model_name = "gemini-1.5-flash"
-                    llm = ChatGoogleGenerativeAI(
-                        model=model_name,
-                        temperature=0.3,
-                        google_api_key=gemini_api_key,
-                        max_output_tokens=500,
-                    )
+                print(f"[transform-prompt] Model {model_name} not available, trying gemini-1.5-flash: {e}")
+                # Final fallback to gemini-1.5-flash
+                model_name = "gemini-1.5-flash"
+                llm = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    temperature=0.3,  # Slightly higher for more creative but still focused visual descriptions
+                    google_api_key=gemini_api_key,
+                    max_output_tokens=400,  # Increased to allow for complete process descriptions (3-4 sentences for complex processes)
+                )
             
             print(f"[transform-prompt] Using model: {model_name}")
         except ImportError:
@@ -1725,38 +1785,79 @@ async def transform_whiteboard_prompt(body: WhiteboardPromptTransformRequest):
                 "note": "LLM transformation skipped - langchain_google_genai not available"
             }
         
-        # Create transformation prompt - include ALL details while optimizing for drawing
-        transformation_prompt = f"""Transform the following prompt to be specialized for drawing and visual representation on a whiteboard. 
+        # Create transformation prompt - output concise prose describing exactly what to see
+        # Enhanced to ensure robust visual diagram generation with COMPLETE processes
+        transformation_prompt = f"""You are a visual diagram expert. Transform the following user question or topic into a SPECIFIC, DETAILED description of exactly what should be drawn on a whiteboard.
 
-CRITICAL REQUIREMENTS:
-- Include ALL details from the original prompt/question - do not omit any information
-- Focus on drawing shapes, graphs, diagrams, visual elements
-- Focus on labeling elements clearly with all relevant details
-- Use visual positioning and layout instructions
-- Transform text explanations into visual instructions with labels, arrows, and visual indicators
-- Maintain all specific details, numbers, equations, relationships from the original prompt
-- Keep the prompt clear and actionable for drawing, but include all necessary information
+CRITICAL REQUIREMENTS FOR VISUAL DIAGRAMS:
+1. MUST describe concrete visual elements: shapes, arrows, labels, connections, positions, layouts
+2. MUST specify relationships: how elements connect, flow, or relate to each other
+3. MUST include all key details: names, numbers, equations, dates, categories mentioned
+4. MUST show COMPLETE PROCESSES: For operations, calculations, or multi-step procedures, include:
+   - The initial inputs/components
+   - ALL intermediate steps with labels and arrows
+   - The step-by-step process showing HOW it works (not just what it is)
+   - The final result/output
+   - Arrows and connections showing the flow/sequence
+5. MUST be actionable: someone reading this should know exactly what to draw
+6. Output in PROSE FORMAT (continuous sentences, no bullet points, no numbered lists)
+7. Maximum 3-4 sentences for complex processes, but be SPECIFIC and DETAILED
+
+EXAMPLES OF GOOD TRANSFORMATIONS:
+- Input: "French Revolution"
+  Output: "A timeline diagram showing the French Revolution from 1789 to 1799, with key events labeled including the Storming of the Bastille in 1789, Reign of Terror, and rise of Napoleon, arranged chronologically from left to right with connecting arrows."
+
+- Input: "explain photosynthesis"
+  Output: "A labeled diagram showing the photosynthesis process: a plant leaf in the center, arrows pointing in for sunlight and CO2, arrows pointing out for oxygen, with labeled chloroplasts inside the leaf containing chlorophyll."
+
+- Input: "quadratic equations"
+  Output: "A graph showing a parabolic curve labeled as y = ax² + bx + c, with axes marked x and y, vertex point labeled, and example values for a, b, and c shown on the graph."
+
+- Input: "matrix multiplication"
+  Output: "Two matrices labeled A and B positioned side by side, with arrows connecting corresponding rows and columns showing how each element of the result matrix is calculated by multiplying row elements of A with column elements of B and summing, including step-by-step calculations for each element labeled, and the final result matrix C positioned to the right with all calculated values filled in."
+
+- Input: "how to solve quadratic equations"
+  Output: "A step-by-step diagram showing a quadratic equation ax² + bx + c = 0, followed by the quadratic formula x = (-b ± √(b² - 4ac)) / 2a written out, then a worked example with numbers substituted in, showing each calculation step with arrows, and the final solutions clearly labeled."
 
 Original prompt: {original_prompt}
 
-Transform this into a drawing instruction that includes ALL details from the original prompt, optimized for visual representation. Return ONLY the transformed prompt, nothing else."""
+Transform this into a SPECIFIC visual description. For any process, operation, or calculation, include ALL steps from beginning to end, not just the basic components. Show HOW it works, not just WHAT it is. Be DETAILED about what shapes, labels, positions, relationships, steps, and final results should appear. Return ONLY the prose description of what to draw, nothing else."""
 
         # Get transformed prompt from LLM
         response = llm.invoke(transformation_prompt)
         transformed_prompt = response.content.strip()
         
-        # No sentence limit - keep all details, just ensure it's properly formatted
+        # Clean up and format as prose
         if transformed_prompt:
-            # Clean up any extra whitespace but preserve all content
             import re
+            # Remove bullet points, numbered lists, and formatting
+            transformed_prompt = re.sub(r'^[\s]*[-•*]\s+', '', transformed_prompt, flags=re.MULTILINE)  # Remove bullet points
+            transformed_prompt = re.sub(r'^\d+\.\s+', '', transformed_prompt, flags=re.MULTILINE)  # Remove numbered lists
+            transformed_prompt = re.sub(r'\*\*([^*]+)\*\*', r'\1', transformed_prompt)  # Remove bold markers
+            transformed_prompt = re.sub(r'\*([^*]+)\*', r'\1', transformed_prompt)  # Remove italic markers
+            # Collapse multiple whitespace/newlines into single spaces
             transformed_prompt = re.sub(r'\s+', ' ', transformed_prompt).strip()
+            # Remove any remaining markdown formatting
+            transformed_prompt = re.sub(r'`([^`]+)`', r'\1', transformed_prompt)  # Remove code backticks
+            # Ensure it ends with proper punctuation
+            if transformed_prompt and not transformed_prompt[-1] in '.!?':
+                transformed_prompt += '.'
+            # Limit length but preserve detail (max 450 characters for complete process descriptions)
+            if len(transformed_prompt) > 450:
+                # Try to truncate at sentence boundary to preserve meaning
+                truncated = transformed_prompt[:447]
+                last_period = truncated.rfind('.')
+                if last_period > 200:  # Only truncate at sentence if reasonable (allows for 3-4 sentence descriptions)
+                    transformed_prompt = truncated[:last_period + 1]
+                else:
+                    transformed_prompt = truncated + '...'
         
         # Fallback to original if transformation failed
         if not transformed_prompt or len(transformed_prompt) < 5:
             transformed_prompt = original_prompt
         
         print(f"[transform-prompt] Original: {original_prompt[:150]}")
-        print(f"[transform-prompt] Transformed: {transformed_prompt[:200]}")
+        print(f"[transform-prompt] Transformed (prose): {transformed_prompt[:200]}")
         
         return {
             "status": "success",
